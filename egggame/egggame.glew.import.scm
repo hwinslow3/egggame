@@ -226,6 +226,13 @@
 (define GL_NEAREST (foreign-value "GL_NEAREST" GLenum))
 (define GL_LINEAR (foreign-value "GL_LINEAR" GLenum))
 
+;; wrap values
+(define GL_CLAMP_TO_EDGE (foreign-value "GL_CLAMP_TO_EDGE" GLenum))
+(define GL_CLAMP_TO_BORDER (foreign-value "GL_CLAMP_TO_BORDER" GLenum))
+(define GL_MIRRORED_REPEAT (foreign-value "GL_MIRRORED_REPEAT" GLenum))
+(define GL_REPEAT (foreign-value "GL_REPEAT" GLenum))
+(define GL_MIRROR_CLAMP_TO_EDGE (foreign-value "GL_MIRROR_CLAMP_TO_EDGE" GLenum))
+
 
 ;; funcs
 (define glGenTextures (foreign-lambda void glGenTextures size_t u32vector))
