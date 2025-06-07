@@ -99,6 +99,10 @@
 (define SDL_GL_CONTEXT_NO_ERROR (foreign-value "SDL_GL_CONTEXT_NO_ERROR" int))
 (define SDL_GL_FLOATBUFFERS (foreign-value "SDL_GL_FLOATBUFFERS" int))
 (define SDL_GL_EGL_PLATFORM (foreign-value "SDL_GL_EGL_PLATFORM" int))
+(define SDL_GL_CONTEXT_DEBUG_FLAG (foreign-value "SDL_GL_CONTEXT_DEBUG_FLAG" (enum SDL_GLattr)))
+(define SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG (foreign-value "SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG" (enum SDL_GLattr)))
+(define SDL_GL_CONTEXT_ROBUST_ACCESS_FLAG (foreign-value "SDL_GL_CONTEXT_ROBUST_ACCESS_FLAG" (enum SDL_GLattr)))
+(define SDL_GL_CONTEXT_RESET_ISOLATION_FLAG (foreign-value "SDL_GL_CONTEXT_RESET_ISOLATION_FLAG" (enum SDL_GLattr)))
 
 (define (SDL_GL_GetAttribute attr)
   (unless (= sizeof-int 4) (error "this needs to be rewritten"))
@@ -107,6 +111,8 @@
             "C_return(SDL_GL_GetAttribute(attr, value));")
           attr value)
          (s32vector-ref value 0))))
+
+(define SDL_GL_SetAttribute (foreign-lambda bool SDL_GL_SetAttribute int int))
 
 (define SDL_GL_SetSwapInterval (foreign-lambda bool SDL_GL_SetSwapInterval int))
 (define SDL_GL_SwapWindow (foreign-lambda bool SDL_GL_SwapWindow c-pointer))
