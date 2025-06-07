@@ -13,6 +13,13 @@
 (define-foreign-type GLenum unsigned-int)
 
 ;; =============================================================================
+;; glew stuff
+;; =============================================================================
+
+(define GLEW_OK (foreign-value "GLEW_OK" GLenum))
+(define glewInit (foreign-lambda GLenum glewInit))
+
+;; =============================================================================
 ;; errors
 ;; =============================================================================
 
@@ -24,6 +31,7 @@
 (define GL_OUT_OF_MEMORY (foreign-value "GL_OUT_OF_MEMORY" GLenum))
 (define GL_STACK_UNDERFLOW (foreign-value "GL_STACK_UNDERFLOW" GLenum))
 (define GL_STACK_OVERFLOW (foreign-value "GL_STACK_OVERFLOW" GLenum))
+(define GL_FALSE (foreign-value "GL_FALSE" GLenum))
 
 (define glGetError (foreign-lambda GLenum glGetError))
 (define gluErrorString (foreign-lambda c-string gluErrorString GLenum))
@@ -31,6 +39,9 @@
 ;; =============================================================================
 ;; buffers
 ;; =============================================================================
+
+;; sizes I guess
+(define sizeof-GLfloat (foreign-value "sizeof(GLfloat)" size_t))
 
 ;; buffer types
 (define GL_ARRAY_BUFFER (foreign-value "GL_ARRAY_BUFFER" GLenum))
@@ -62,8 +73,12 @@
 ;; funcs
 (define glGenBuffers (foreign-lambda void glGenBuffers size_t u32vector))
 (define glBindBuffer (foreign-lambda void glBindBuffer GLenum unsigned-int))
-(define glBufferData (foreign-lambda void glBufferData GLenum unsigned-integer64 c-pointer GLenum))
+(define glBufferData (foreign-lambda void glBufferData GLenum unsigned-integer64 blob GLenum))
 (define glDeleteBuffers (foreign-lambda void glDeleteBuffers size_t u32vector))
+
+(define glVertexAttribPointer (foreign-lambda void glVertexAttribPointer unsigned-int int GLenum bool size_t c-pointer))
+(define glEnableVertexAttribArray (foreign-lambda void glEnableVertexAttribArray unsigned-int))
+(define glDisableVertexAttribArray (foreign-lambda void glDisableVertexAttribArray unsigned-int))
 
 ;; =============================================================================
 ;; textures
@@ -99,6 +114,16 @@
 (define GL_TEXTURE_WRAP_S (foreign-value "GL_TEXTURE_WRAP_S" GLenum))
 (define GL_TEXTURE_WRAP_T (foreign-value "GL_TEXTURE_WRAP_T" GLenum))
 (define GL_TEXTURE_WRAP_R (foreign-value "GL_TEXTURE_WRAP_R" GLenum))
+
+(define GL_TEXTURE0 (foreign-value "GL_TEXTURE0" GLenum))
+(define GL_TEXTURE1 (foreign-value "GL_TEXTURE1" GLenum))
+(define GL_TEXTURE2 (foreign-value "GL_TEXTURE2" GLenum))
+(define GL_TEXTURE3 (foreign-value "GL_TEXTURE3" GLenum))
+(define GL_TEXTURE4 (foreign-value "GL_TEXTURE4" GLenum))
+(define GL_TEXTURE5 (foreign-value "GL_TEXTURE5" GLenum))
+(define GL_TEXTURE6 (foreign-value "GL_TEXTURE6" GLenum))
+(define GL_TEXTURE7 (foreign-value "GL_TEXTURE7" GLenum))
+(define GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS (foreign-value "GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS" GLenum))
 
 ;; internalFormats
 (define GL_DEPTH_COMPONENT (foreign-value "GL_DEPTH_COMPONENT" GLenum))
@@ -241,5 +266,89 @@
 (define glTexImage2D
   (foreign-lambda void glTexImage2D
     GLenum int int size_t size_t int GLenum GLenum c-pointer))
+(define glActiveTexture (foreign-lambda void glActiveTexture GLenum))
+
+;; =============================================================================
+;; shaders
+;; =============================================================================
+
+;; shaderTypes
+(define GL_COMPUTE_SHADER (foreign-value "GL_COMPUTE_SHADER" GLenum))
+(define GL_VERTEX_SHADER (foreign-value "GL_VERTEX_SHADER" GLenum))
+(define GL_TESS_CONTROL_SHADER (foreign-value "GL_TESS_CONTROL_SHADER" GLenum))
+(define GL_TESS_EVALUATION_SHADER (foreign-value "GL_TESS_EVALUATION_SHADER" GLenum))
+(define GL_GEOMETRY_SHADER (foreign-value "GL_GEOMETRY_SHADER" GLenum))
+(define GL_FRAGMENT_SHADER (foreign-value "GL_FRAGMENT_SHADER" GLenum))
+
+;; pname
+(define GL_SHADER_TYPE (foreign-value "GL_SHADER_TYPE" GLenum))
+(define GL_DELETE_STATUS (foreign-value "GL_DELETE_STATUS" GLenum))
+(define GL_COMPILE_STATUS (foreign-value "GL_COMPILE_STATUS" GLenum))
+(define GL_INFO_LOG_LENGTH (foreign-value "GL_INFO_LOG_LENGTH" GLenum))
+(define GL_SHADER_SOURCE_LENGTH (foreign-value "GL_SHADER_SOURCE_LENGTH" GLenum))
+
+(define GL_DELETE_STATUS (foreign-value "GL_DELETE_STATUS" GLenum))
+(define GL_LINK_STATUS (foreign-value "GL_LINK_STATUS" GLenum))
+(define GL_VALIDATE_STATUS (foreign-value "GL_VALIDATE_STATUS" GLenum))
+(define GL_INFO_LOG_LENGTH (foreign-value "GL_INFO_LOG_LENGTH" GLenum))
+(define GL_ATTACHED_SHADERS (foreign-value "GL_ATTACHED_SHADERS" GLenum))
+(define GL_ACTIVE_ATOMIC_COUNTER_BUFFERS (foreign-value "GL_ACTIVE_ATOMIC_COUNTER_BUFFERS" GLenum))
+(define GL_ACTIVE_ATTRIBUTES (foreign-value "GL_ACTIVE_ATTRIBUTES" GLenum))
+(define GL_ACTIVE_ATTRIBUTE_MAX_LENGTH (foreign-value "GL_ACTIVE_ATTRIBUTE_MAX_LENGTH" GLenum))
+(define GL_ACTIVE_UNIFORMS (foreign-value "GL_ACTIVE_UNIFORMS" GLenum))
+(define GL_ACTIVE_UNIFORM_BLOCKS (foreign-value "GL_ACTIVE_UNIFORM_BLOCKS" GLenum))
+(define GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH (foreign-value "GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH" GLenum))
+(define GL_ACTIVE_UNIFORM_MAX_LENGTH (foreign-value "GL_ACTIVE_UNIFORM_MAX_LENGTH" GLenum))
+(define GL_COMPUTE_WORK_GROUP_SIZE (foreign-value "GL_COMPUTE_WORK_GROUP_SIZE" GLenum))
+(define GL_PROGRAM_BINARY_LENGTH (foreign-value "GL_PROGRAM_BINARY_LENGTH" GLenum))
+(define GL_TRANSFORM_FEEDBACK_BUFFER_MODE (foreign-value "GL_TRANSFORM_FEEDBACK_BUFFER_MODE" GLenum))
+(define GL_TRANSFORM_FEEDBACK_VARYINGS (foreign-value "GL_TRANSFORM_FEEDBACK_VARYINGS" GLenum))
+(define GL_TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH (foreign-value "GL_TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH" GLenum))
+(define GL_GEOMETRY_VERTICES_OUT (foreign-value "GL_GEOMETRY_VERTICES_OUT" GLenum))
+(define GL_GEOMETRY_INPUT_TYPE (foreign-value "GL_GEOMETRY_INPUT_TYPE" GLenum))
+(define GL_GEOMETRY_OUTPUT_TYPE (foreign-value "GL_GEOMETRY_OUTPUT_TYPE" GLenum))
+
+;; funcs
+(define glCreateShader (foreign-lambda unsigned-int glCreateShader GLenum))
+(define glShaderSource/single
+  (foreign-lambda* void ((unsigned-int shader) (c-string str))
+    "int count = 1; int len = strlen(str); glShaderSource(shader, count, (const GLchar **)&str, &len);"))
+(define glCompileShader (foreign-lambda void glCompileShader unsigned-int))
+(define glGetShaderiv (foreign-lambda void glGetShaderiv unsigned-int GLenum s32vector))
+(define glGetShaderInfoLog (foreign-lambda void glGetShaderInfoLog unsigned-int size_t s32vector blob))
+(define glDeleteShader (foreign-lambda void glDeleteShader unsigned-int))
+
+(define glCreateProgram (foreign-lambda unsigned-int glCreateProgram))
+(define glAttachShader (foreign-lambda void glAttachShader unsigned-int unsigned-int))
+(define glLinkProgram (foreign-lambda void glLinkProgram unsigned-int))
+(define glGetProgramiv (foreign-lambda void glGetProgramiv unsigned-int GLenum s32vector))
+(define glGetProgramInfoLog (foreign-lambda void glGetProgramInfoLog unsigned-int size_t s32vector blob))
+(define glUseProgram (foreign-lambda void glUseProgram unsigned-int))
+(define glDeleteProgram (foreign-lambda void glDeleteProgram unsigned-int))
+
+(define glGetUniformLocation (foreign-lambda int glGetUniformLocation unsigned-int c-string))
+(define glGetAttribLocation (foreign-lambda int glGetAttribLocation unsigned-int c-string))
+
+(define glUniform1f (foreign-lambda void glUniform1f int float))
+(define glUniform1i (foreign-lambda void glUniform1f int int))
+
+;; =============================================================================
+;; draw elements
+;; =============================================================================
+
+(define GL_POINTS (foreign-value "GL_POINTS" GLenum))
+(define GL_LINE_STRIP (foreign-value "GL_LINE_STRIP" GLenum))
+(define GL_LINE_LOOP (foreign-value "GL_LINE_LOOP" GLenum))
+(define GL_LINES (foreign-value "GL_LINES" GLenum))
+(define GL_LINE_STRIP_ADJACENCY (foreign-value "GL_LINE_STRIP_ADJACENCY" GLenum))
+(define GL_LINES_ADJACENCY (foreign-value "GL_LINES_ADJACENCY" GLenum))
+(define GL_TRIANGLE_STRIP (foreign-value "GL_TRIANGLE_STRIP" GLenum))
+(define GL_TRIANGLE_FAN (foreign-value "GL_TRIANGLE_FAN" GLenum))
+(define GL_TRIANGLES (foreign-value "GL_TRIANGLES" GLenum))
+(define GL_TRIANGLE_STRIP_ADJACENCY (foreign-value "GL_TRIANGLE_STRIP_ADJACENCY" GLenum))
+(define GL_TRIANGLES_ADJACENCY (foreign-value "GL_TRIANGLES_ADJACENCY" GLenum))
+(define GL_PATCHES (foreign-value "GL_PATCHES" GLenum))
+
+(define glDrawElements (foreign-lambda void glDrawElements GLenum size_t GLenum c-pointer))
 
 )

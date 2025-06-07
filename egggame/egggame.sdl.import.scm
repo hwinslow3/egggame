@@ -108,6 +108,9 @@
           attr value)
          (s32vector-ref value 0))))
 
+(define SDL_GL_SetSwapInterval (foreign-lambda bool SDL_GL_SetSwapInterval int))
+(define SDL_GL_SwapWindow (foreign-lambda bool SDL_GL_SwapWindow c-pointer))
+
 ;; =============================================================================
 ;; event stuff
 ;; =============================================================================
@@ -244,5 +247,21 @@
 (define SDL_EVENT_USER (foreign-value "SDL_EVENT_USER" unsigned-integer32))
 (define SDL_EVENT_LAST (foreign-value "SDL_EVENT_LAST" unsigned-integer32))
 
+
+;; =============================================================================
+;; time stuff
+;; =============================================================================
+
+(define-foreign-type SDL_Time integer64)
+(define-foreign-type SDL_Time* s64vector)
+
+(define SDL_GetCurrentTime (foreign-lambda bool SDL_GetCurrentTime SDL_Time*))
+
+(define (SDL_GetCurrentTime/ret #!optional (store (s64vector 4)))
+  (and (SDL_GetCurrentTime store)
+       store))
+
+(define SDL_GetTicks (foreign-lambda unsigned-integer64 SDL_GetTicks))
+(define SDL_Delay (foreign-lambda void SDL_Delay unsigned-integer32))
 
 )
