@@ -596,6 +596,7 @@
 
 (define glUniform1f (foreign-lambda void glUniform1f int float))
 (define glUniform1i (foreign-lambda void glUniform1i int int))
+(define glUniformMatrix4fv (foreign-lambda void glUniformMatrix4fv int size_t bool f32vector))
 
 ;; =============================================================================
 ;; draw elements
