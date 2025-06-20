@@ -2,7 +2,8 @@
 (import (egggame sdl)
         (egggame glew)
         (egggame devil)
-        (srfi-4))
+        (srfi-4)
+        (defstruct))
 (import (chicken format) (chicken blob) (chicken port))
 
 ;; making buffers
@@ -151,6 +152,8 @@
          (/ double-cycle-progress +cycle+)
          (/ (- (* 2 +cycle+) double-cycle-progress) +cycle+))))
 
+  (glUniformMatrix4fv *u-camera* 1 #t (matrix-data (camera-matrix)))
+
   (glActiveTexture GL_TEXTURE0)
   (check-gl-error "post active texture 0")
   (glBindTexture GL_TEXTURE_2D *tex-1*)
@@ -169,22 +172,98 @@
   (glVertexAttribPointer *a-position* 2 GL_FLOAT GL_FALSE (* 2 sizeof-GLfloat) #f)
   (glEnableVertexAttribArray *a-position*)
 
+  (glBindBuffer GL_ARRAY_BUFFER *text-coord-buffer-data*)
+  (glVertexAttribPointer *a-in-texcoord* 2 GL_FLOAT GL_FALSE (* 2 sizeof-GLfloat) #f)
+  (glEnableVertexAttribArray *a-in-texcoord*)
+
   (glBindBuffer GL_ELEMENT_ARRAY_BUFFER *element-buffer-data*)
   (glDrawElements GL_TRIANGLE_STRIP 4 GL_UNSIGNED_SHORT #f)
 
   (glDisableVertexAttribArray *a-position*)
+  (glDisableVertexAttribArray *a-in-texcoord*)
 )
+
+(define event-cycle!
+  (let ((mouse-button-down? #f))
+    (lambda ()
+      (let ((res (SDL_PollEvent *ev*)))
+        (and
+         res
+         (cond
+          ((= (SDL_Event-type *ev*) SDL_EVENT_QUIT)
+           (set! running? #f))
+          ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_BUTTON_DOWN)
+           (set! mouse-button-down? #t))
+          ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_BUTTON_UP)
+           (set! mouse-button-down? #f))
+          ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_MOTION)
+           (when mouse-button-down?
+             (set! *camera-offset*
+               (map - *camera-offset*
+                      (list (SDL_Event-motion-xrel *ev*)
+                            (SDL_Event-motion-yrel *ev*))))))
+          (else
+           (printf "unrecognized event type: ~a\n" (SDL_Event-type *ev*)))))))))
 
 (define (main-loop)
   (while running?
-    (while (SDL_PollEvent *ev*)
-      (cond
-       ((= (SDL_Event-type *ev*) SDL_EVENT_QUIT)
-        (set! running? #f))
-       (else
-        (printf "unrecognized event type: ~a\n" (SDL_Event-type *ev*)))))
+    (while (event-cycle!)
+      #t)
     (regulate!)
     (draw!)
     (SDL_GL_SwapWindow *window*)))
+
+;; tile layout
+'(
+(defstruct tile-collection
+  gl-program
+)
+
+(defstruct tileset)
+(defstruct tile-listing)
+(defstruct tile)
+
+(define orig-make-tile-collection make-tile-collection)
+
+(set! make-tile-collection
+  (lambda ()
+    (let* ((vert-shader-text #<<END
+#version 110
+
+attribute vec3 position;
+attribute vec2 tex_coord;
+uniform mat4 camera;
+varying vec2 texcoord;
+
+void main() {
+  gl_Position = vec4(position, 1.0) * camera;
+  texcoord = tex_coord;
+}
+END
+)
+           (vert-shader X)
+           (frag-shader-text #<<END
+END
+)
+           (gl-program X))
+      (orig-make-tile-collection
+       gl-program: gl-program
+       tilesets: '()))))
+
+(define (tile-collection-add-tileset! tc filename)
+  X
+)
+
+(define (tileset-add-tile-listing! ts #!key start dimensions)
+  X
+)
+
+(define (tile-collection-alloc-tile! tc tile)
+  X
+)
+
+(define (draw-tile-collection! tc)
+  X)
+)
 
 ;end

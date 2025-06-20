@@ -254,6 +254,13 @@
 (define SDL_EVENT_LAST (foreign-value "SDL_EVENT_LAST" unsigned-integer32))
 
 
+(define SDL_Event-motion-xrel
+  (foreign-lambda* float ((u8vector ev))
+    "C_return(((SDL_Event*)ev)->motion.xrel);"))
+(define SDL_Event-motion-yrel
+  (foreign-lambda* float ((u8vector ev))
+    "C_return(((SDL_Event*)ev)->motion.yrel);"))
+
 ;; =============================================================================
 ;; time stuff
 ;; =============================================================================

@@ -17,8 +17,13 @@
 
   (+ (cadr idx) (* (car idx) (cadr (matrix-dimensions mat)))))
 
+(define (->inexact x)
+  (if (exact? x)
+      (exact->inexact x)
+      x))
+
 (define (matrix-set! mat idx val)
-  (set! (f32vector-ref (matrix-data mat) (matrix-flat-index mat idx)) val))
+  (set! (f32vector-ref (matrix-data mat) (matrix-flat-index mat idx)) (->inexact val)))
 
 (define (%matrix-ref mat idx)
   (f32vector-ref (matrix-data mat) (matrix-flat-index mat idx)))
@@ -53,4 +58,18 @@
            (iota (cadr (matrix-dimensions b)))))
         (iota (cadr dim))))
      (iota (car dim)))
+    res))
+
+(define (ortho-matrix #!key left right far near top bottom)
+  (let ((res (zero-matrix '(4 4))))
+
+    (set! (matrix-ref res '(0 0)) (/ 2 (- right left)))
+    (set! (matrix-ref res '(1 1)) (/ 2 (- top bottom)))
+    (set! (matrix-ref res '(2 2)) (/ -2 (- far near)))
+    (set! (matrix-ref res '(3 3)) 1)
+
+    (set! (matrix-ref res '(0 3)) (- (/ (+ right left) (- right left))))
+    (set! (matrix-ref res '(1 3)) (- (/ (+ top bottom) (- top bottom))))
+    (set! (matrix-ref res '(2 3)) (- (/ (+ far near) (- far near))))
+
     res))
