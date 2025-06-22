@@ -12,8 +12,13 @@
         (count (blob-size data)))
     (glGenBuffers 1 res)
     (glBindBuffer target (u32vector-ref res 0))
-    (glBufferData target count data GL_STATIC_DRAW)
+    (glBufferData target count data GL_DYNAMIC_DRAW)
     (u32vector-ref res 0)))
+
+(define (update-buffer! buf target data)
+  (let ((count (blob-size data)))
+    (glBindBuffer target *vert-buffer-data*)
+    (glBufferData target count data GL_DYNAMIC_DRAW)))
 
 ;; texture allocation
 (define (check-il-error msg)
@@ -198,10 +203,9 @@
            (set! mouse-button-down? #f))
           ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_MOTION)
            (when mouse-button-down?
-             (set! *camera-offset*
-               (map - *camera-offset*
-                      (list (SDL_Event-motion-xrel *ev*)
-                            (SDL_Event-motion-yrel *ev*))))))
+             (adjust-vert-buffer!
+              (list (SDL_Event-motion-xrel *ev*)
+                    (SDL_Event-motion-yrel *ev*)))))
           (else
            (printf "unrecognized event type: ~a\n" (SDL_Event-type *ev*)))))))))
 

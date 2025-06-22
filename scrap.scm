@@ -35,6 +35,28 @@
 
 (define *ev* (make-SDL_Event))
 
+(define *vert-buffer-vect*
+  (f32vector
+                           0 (cadr +window-dimensions+)
+   (car +window-dimensions+) (cadr +window-dimensions+)
+                           0                          0
+   (car +window-dimensions+)                          0
+   ))
+
+(define (adjust-vert-buffer! offset)
+  (for-each
+   (lambda (idx)
+     (set! (f32vector-ref *vert-buffer-vect* idx)
+           (+ (f32vector-ref *vert-buffer-vect* idx) (car offset))))
+   '(0 2 4 6))
+  (for-each
+   (lambda (idx)
+     (set! (f32vector-ref *vert-buffer-vect* idx)
+           (+ (f32vector-ref *vert-buffer-vect* idx) (cadr offset))))
+   '(1 3 5 7))
+  (update-buffer! *vert-buffer-data* GL_ARRAY_BUFFER
+                  (f32vector->blob/shared *vert-buffer-vect*)))
+
 (define *vert-buffer-data*
   (make-buffer GL_ARRAY_BUFFER
                (f32vector->blob/shared
@@ -48,12 +70,7 @@
 ;                           -1  1 ; top left
 ;                            1  1 ; top right
 ;                            )
-                (f32vector
-                                         0 (cadr +window-dimensions+)
-                 (car +window-dimensions+) (cadr +window-dimensions+)
-                                         0                          0
-                 (car +window-dimensions+)                          0
-                 )
+                *vert-buffer-vect*
 )))
 (define *text-coord-buffer-data*
   (make-buffer
