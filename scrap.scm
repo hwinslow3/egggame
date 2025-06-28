@@ -72,6 +72,35 @@
 ;                            )
                 *vert-buffer-vect*
 )))
+
+(define cycle-text-coords!
+  (let ((items
+         (list
+          (map / +window-dimensions+ +window-dimensions+)
+          (map / (list 0                          0) +window-dimensions+)
+          (map / (list (car +window-dimensions+) 0) +window-dimensions+)
+          (map / (list 0 (cadr +window-dimensions+)) +window-dimensions+)
+          )))
+    (lambda ()
+      (set! items (append (cdr items) (list (car items))))
+      (update-buffer! *text-coord-buffer-data*
+                      GL_ARRAY_BUFFER
+                      (f32vector->blob/shared
+                       (list->f32vector
+                        (flatten items)))))))
+
+(define *tex-idx-buffer-vect* (f32vector 0 0 0 0))
+(define (set-texture-idx! value)
+  (format #t "debugk01 switching ~s\n" value)
+;  (cycle-text-coords!)
+
+  (for-each
+   (lambda (idx) (set! (f32vector-ref *tex-idx-buffer-vect* idx) value))
+   '(0 1 2 3))
+  (update-buffer! *text-idx-buffer-data*
+                  GL_ARRAY_BUFFER
+                  (f32vector->blob/shared *tex-idx-buffer-vect*)))
+
 (define *text-coord-buffer-data*
   (make-buffer
    GL_ARRAY_BUFFER
@@ -85,49 +114,63 @@
        (map / (list (car +window-dimensions+) 0) +window-dimensions+)
        )
     )))))
+(define *text-idx-buffer-data*
+  (make-buffer
+   GL_ARRAY_BUFFER
+   (f32vector->blob/shared *tex-idx-buffer-vect*)))
 (define *element-buffer-data*
   (make-buffer GL_ELEMENT_ARRAY_BUFFER
                (u16vector->blob/shared
-                (u16vector 0 1 2 3
+                (u16vector 0 1 2
+                           1 3 2
 ))))
 
 ;; textures
-(define *tex-1* (allocate-gl-texture "scrap-images/gl2-hello-1.png"))
-(define *tex-2* (allocate-gl-texture "scrap-images/gl2-hello-2.png"))
+;(define *tex-1* (allocate-gl-texture "scrap-images/gl2-hello-1.png"))
+;(define *tex-2* (allocate-gl-texture "scrap-images/gl2-hello-2.png"))
+
+(define *tex* (allocate-gl-texture-array
+               '("scrap-images/gl2-hello-1.png"
+                 "scrap-images/gl2-hello-2.png")))
 
 ;; shaders
 (define vert-shader-text #<<END
-#version 110
+#version 130
 
-attribute vec2 position;
-attribute vec2 in_texcoord;
+in vec2 position;
+in vec2 in_texcoord;
+in int in_texidx;
 uniform mat4 camera;
 
-varying vec2 texcoord;
+out vec2 texcoord;
+flat out int texidx;
 
 void main()
 {
     gl_Position = camera * vec4(position, 0.0, 1.0);
     texcoord = in_texcoord;
+    texidx = in_texidx;
 }
 END
 )
 
 (define fragment-shader-text #<<END
-#version 110
+#version 130
 
 uniform float fade_factor;
-uniform sampler2D textures[2];
+uniform sampler2DArray textures;
 
-varying vec2 texcoord;
+in vec2 texcoord;
+flat in int texidx;
 
 void main()
 {
-    gl_FragColor = mix(
-        texture2D(textures[0], texcoord),
-        texture2D(textures[1], texcoord),
-        fade_factor
-    );
+  gl_FragColor = texture(textures, vec3(texcoord, texidx));
+//    gl_FragColor = mix(
+//        texture2D(textures[0], texcoord),
+//        texture2D(textures[1], texcoord),
+//        fade_factor
+//    );
 }
 END
 )
@@ -139,18 +182,20 @@ END
 
 ;; uniforms
 (define *u-fade-factor* (glGetUniformLocation *program* "fade_factor"))
-(define *u-textures-0* (glGetUniformLocation *program* "textures[0]"))
-(define *u-textures-1* (glGetUniformLocation *program* "textures[1]"))
+(define *u-textures* (glGetUniformLocation *program* "textures"))
+;(define *u-textures-0* (glGetUniformLocation *program* "textures[0]"))
+;(define *u-textures-1* (glGetUniformLocation *program* "textures[1]"))
 (define *u-camera* (glGetUniformLocation *program* "camera"))
 
 ;; attributes
 (define *a-position* (glGetAttribLocation *program* "position"))
 (define *a-in-texcoord* (glGetAttribLocation *program* "in_texcoord"))
+(define *a-in-texidx* (glGetAttribLocation *program* "in_texidx"))
 
 (define running? #t)
 
 ;; main regulator
-(define regulate! (make-fps-regulator 50))
+(define regulate! (make-fps-regulator 28))
 
 (define +cycle+ 650.0)
 

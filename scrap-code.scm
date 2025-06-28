@@ -3,6 +3,7 @@
         (egggame glew)
         (egggame devil)
         (srfi-4)
+        (srfi-1)
         (defstruct))
 (import (chicken format) (chicken blob) (chicken port))
 
@@ -17,7 +18,7 @@
 
 (define (update-buffer! buf target data)
   (let ((count (blob-size data)))
-    (glBindBuffer target *vert-buffer-data*)
+    (glBindBuffer target buf)
     (glBufferData target count data GL_DYNAMIC_DRAW)))
 
 ;; texture allocation
@@ -67,6 +68,54 @@
       (check-gl-error "failed to create gl texture")
 
       gl-tex)))
+
+(define (allocate-gl-texture-array filenames)
+  (let ((gl-tex
+         (let ((names (u32vector 4)))
+           (glGenTextures 1 names)
+           (u32vector-ref names 0)))
+        (initialized-storage? #f))
+    (glBindTexture GL_TEXTURE_2D_ARRAY gl-tex)
+
+    (check-gl-error "failed to bind 3d gl texture")
+
+    (for-each
+     (lambda (filename layer)
+       (let ((img (let ((res (u32vector 3)))
+                    (ilGenImages 1 res)
+                    (check-il-error "failed to create devil image")
+                    (u32vector-ref res 0))))
+         (ilBindImage img)
+         (check-il-error "failed to bind devil image")
+
+         (or (ilLoadImage filename)
+             (check-il-error "failed to load devil image"))
+
+         (or (ilConvertImage IL_RGBA IL_UNSIGNED_BYTE)
+             (check-il-error "failed to convert devil image"))
+
+         (unless initialized-storage?
+           (glTexStorage3D
+            GL_TEXTURE_2D_ARRAY 1 GL_RGBA8
+            (ilGetInteger IL_IMAGE_WIDTH) (ilGetInteger IL_IMAGE_HEIGHT)
+            (length filenames))
+           (check-gl-error "failed to initialize 3d gl texture storage")
+           (set! initialized-storage? #t))
+
+         (glTexSubImage3D
+          GL_TEXTURE_2D_ARRAY 0 0 0 layer
+          (ilGetInteger IL_IMAGE_WIDTH) (ilGetInteger IL_IMAGE_HEIGHT)
+          1
+          GL_RGBA GL_UNSIGNED_BYTE (ilGetData))
+
+         (check-gl-error "failed to assign 3d  gl sub texture")))
+     filenames
+     (iota (length filenames)))
+
+    (glTexParameteri GL_TEXTURE_2D_ARRAY GL_TEXTURE_MAG_FILTER GL_LINEAR)
+    (glTexParameteri GL_TEXTURE_2D_ARRAY GL_TEXTURE_MIN_FILTER GL_LINEAR)
+
+    gl-tex))
 
 ;; shader stuff
 (define (get-info-log obj get get-info-log)
@@ -161,17 +210,24 @@
 
   (glActiveTexture GL_TEXTURE0)
   (check-gl-error "post active texture 0")
-  (glBindTexture GL_TEXTURE_2D *tex-1*)
+  (glBindTexture GL_TEXTURE_2D_ARRAY *tex*)
   (check-gl-error "post bind texture 0")
-  (glUniform1i *u-textures-0* 0)
+  (glUniform1i *u-textures* 0)
   (check-gl-error "post uniform texture 0")
 
-  (glActiveTexture GL_TEXTURE1)
-  (check-gl-error "post active texture 1")
-  (glBindTexture GL_TEXTURE_2D *tex-2*)
-  (check-gl-error "post bind texture 1")
-  (glUniform1i *u-textures-1* 1)
-  (check-gl-error "post uniform texture 1")
+;  (glActiveTexture GL_TEXTURE0)
+;  (check-gl-error "post active texture 0")
+;  (glBindTexture GL_TEXTURE_2D *tex-1*)
+;  (check-gl-error "post bind texture 0")
+;  (glUniform1i *u-textures-0* 0)
+;  (check-gl-error "post uniform texture 0")
+
+;  (glActiveTexture GL_TEXTURE1)
+;  (check-gl-error "post active texture 1")
+;  (glBindTexture GL_TEXTURE_2D *tex-2*)
+;  (check-gl-error "post bind texture 1")
+;  (glUniform1i *u-textures-1* 1)
+;  (check-gl-error "post uniform texture 1")
 
   (glBindBuffer GL_ARRAY_BUFFER *vert-buffer-data*)
   (glVertexAttribPointer *a-position* 2 GL_FLOAT GL_FALSE (* 2 sizeof-GLfloat) #f)
@@ -181,11 +237,25 @@
   (glVertexAttribPointer *a-in-texcoord* 2 GL_FLOAT GL_FALSE (* 2 sizeof-GLfloat) #f)
   (glEnableVertexAttribArray *a-in-texcoord*)
 
+  (check-gl-error "post-enable-text-coords-buffer")
+
+  (glBindBuffer GL_ARRAY_BUFFER *text-idx-buffer-data*)
+  (check-gl-error "post-vertex-idx-attrib-bind-buffer")
+  (glVertexAttribPointer *a-in-texidx* 1 GL_FLOAT GL_FALSE (* 1 sizeof-GLfloat) #f)
+  (check-gl-error "post-vertex-idx-attrib-buffer")
+  (glEnableVertexAttribArray *a-in-texidx*)
+
+  (check-gl-error "post-enable-text-idx-buffer")
+
   (glBindBuffer GL_ELEMENT_ARRAY_BUFFER *element-buffer-data*)
-  (glDrawElements GL_TRIANGLE_STRIP 4 GL_UNSIGNED_SHORT #f)
+;  (glDrawElements GL_TRIANGLE_STRIP 4 GL_UNSIGNED_SHORT #f)
+  (glDrawElements GL_TRIANGLES 6 GL_UNSIGNED_SHORT #f)
 
   (glDisableVertexAttribArray *a-position*)
   (glDisableVertexAttribArray *a-in-texcoord*)
+  (glDisableVertexAttribArray *a-in-texidx*)
+
+  (check-gl-error "post-disable-verts")
 )
 
 (define event-cycle!
@@ -198,8 +268,10 @@
           ((= (SDL_Event-type *ev*) SDL_EVENT_QUIT)
            (set! running? #f))
           ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_BUTTON_DOWN)
+           (set-texture-idx! 1)
            (set! mouse-button-down? #t))
           ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_BUTTON_UP)
+           (set-texture-idx! 0)
            (set! mouse-button-down? #f))
           ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_MOTION)
            (when mouse-button-down?

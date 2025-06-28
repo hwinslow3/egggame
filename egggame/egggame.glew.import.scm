@@ -307,6 +307,7 @@
 
 ;; sizes I guess
 (define sizeof-GLfloat (foreign-value "sizeof(GLfloat)" size_t))
+(define sizeof-GLint (foreign-value "sizeof(GLint)" size_t))
 
 ;; buffer types
 (define GL_ARRAY_BUFFER (foreign-value "GL_ARRAY_BUFFER" GLenum))
@@ -342,6 +343,7 @@
 (define glDeleteBuffers (foreign-lambda void glDeleteBuffers size_t u32vector))
 
 (define glVertexAttribPointer (foreign-lambda void glVertexAttribPointer unsigned-int int GLenum bool size_t c-pointer))
+(define glVertexAttribIPointer (foreign-lambda void glVertexAttribIPointer unsigned-int int GLenum size_t c-pointer))
 (define glEnableVertexAttribArray (foreign-lambda void glEnableVertexAttribArray unsigned-int))
 (define glDisableVertexAttribArray (foreign-lambda void glDisableVertexAttribArray unsigned-int))
 
@@ -531,6 +533,13 @@
 (define glTexImage2D
   (foreign-lambda void glTexImage2D
     GLenum int int size_t size_t int GLenum GLenum c-pointer))
+(define glTexStorage3D
+  (foreign-lambda void glTexStorage3D
+    GLenum size_t GLenum size_t size_t size_t))
+
+(define glTexSubImage3D
+  (foreign-lambda void glTexSubImage3D
+    GLenum int int int int size_t size_t size_t GLenum GLenum c-pointer))
 (define glActiveTexture (foreign-lambda void glActiveTexture GLenum))
 
 ;; =============================================================================
