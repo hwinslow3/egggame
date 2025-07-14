@@ -11,6 +11,8 @@
 (foreign-declare "#include <GL/glew.h>")
 
 (define-foreign-type GLenum unsigned-int)
+(define-foreign-type GLintptr int)
+(define-foreign-type GLsizeiptr int)
 
 ;; =============================================================================
 ;; glew stuff
@@ -340,6 +342,7 @@
 (define glGenBuffers (foreign-lambda void glGenBuffers size_t u32vector))
 (define glBindBuffer (foreign-lambda void glBindBuffer GLenum unsigned-int))
 (define glBufferData (foreign-lambda void glBufferData GLenum unsigned-integer64 blob GLenum))
+(define glBufferSubData (foreign-lambda void glBufferSubData GLenum GLintptr GLsizeiptr blob))
 (define glDeleteBuffers (foreign-lambda void glDeleteBuffers size_t u32vector))
 
 (define glVertexAttribPointer (foreign-lambda void glVertexAttribPointer unsigned-int int GLenum bool size_t c-pointer))
@@ -540,6 +543,9 @@
 (define glTexSubImage3D
   (foreign-lambda void glTexSubImage3D
     GLenum int int int int size_t size_t size_t GLenum GLenum c-pointer))
+(define glTexSubImage3D/blob
+  (foreign-lambda void glTexSubImage3D
+    GLenum int int int int size_t size_t size_t GLenum GLenum blob))
 (define glActiveTexture (foreign-lambda void glActiveTexture GLenum))
 
 ;; =============================================================================
