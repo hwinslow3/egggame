@@ -135,6 +135,29 @@
 (set! make-tile-collection
   (lambda (#!key screen-dimensions)
     (let* (
+           ;; buffers
+           (vert-buffer-data (f32vector 0 0 0
+                                        0 0 0
+                                        0 0 0
+                                        0 0 0))
+           (vert-buffer (make-buffer GL_ARRAY_BUFFER
+                                     (f32vector->blob/shared vert-buffer-data)))
+           (texcoord-buffer-data (f32vector 0 0
+                                            0 0
+                                            0 0
+                                            0 0))
+           (texcoord-buffer (make-buffer
+                             GL_ARRAY_BUFFER
+                             (f32vector->blob/shared texcoord-buffer-data)))
+           (texlayer-buffer-data (s32vector 0 0 0 0))
+           (texlayer-buffer (make-buffer
+                             GL_ARRAY_BUFFER
+                             (s32vector->blob/shared texlayer-buffer-data)))
+           (element-buffer-data (u16vector 0 0 0
+                                           0 0 0))
+           (element-buffer (make-buffer
+                            GL_ELEMENT_ARRAY_BUFFER
+                            (u16vector->blob/shared element-buffer-data)))
 
            ;; shader
            (vert-shader (make-shader GL_VERTEX_SHADER #<<END
@@ -172,29 +195,6 @@ END
 ))
            (gl-program (make-program vert-shader frag-shader))
 
-           ;; buffers
-           (vert-buffer-data (f32vector 0 0 0
-                                        0 0 0
-                                        0 0 0
-                                        0 0 0))
-           (vert-buffer (make-buffer GL_ARRAY_BUFFER
-                                     (f32vector->blob/shared vert-buffer-data)))
-           (texcoord-buffer-data (f32vector 0 0
-                                            0 0
-                                            0 0
-                                            0 0))
-           (texcoord-buffer (make-buffer
-                             GL_ARRAY_BUFFER
-                             (f32vector->blob/shared texcoord-buffer-data)))
-           (texlayer-buffer-data (s32vector 0 0 0 0))
-           (texlayer-buffer (make-buffer
-                             GL_ARRAY_BUFFER
-                             (s32vector->blob/shared texlayer-buffer-data)))
-           (element-buffer-data (u16vector 0 0 0
-                                           0 0 0))
-           (element-buffer (make-buffer
-                            GL_ELEMENT_ARRAY_BUFFER
-                            (u16vector->blob/shared element-buffer-data)))
            (camera-matrix (ortho-matrix left: 0
                                         top: 0
                                         bottom: (cadr screen-dimensions)
@@ -492,9 +492,10 @@ END
       (set! (u16vector-ref buffer-data (+ elem-idx 1)) (+ array-buffer-idx 1))
       (set! (u16vector-ref buffer-data (+ elem-idx 2)) (+ array-buffer-idx 2))
 
-      (set! (u16vector-ref buffer-data (+ elem-idx 3)) (+ array-buffer-idx 1))
-      (set! (u16vector-ref buffer-data (+ elem-idx 4)) (+ array-buffer-idx 3))
-      (set! (u16vector-ref buffer-data (+ elem-idx 5)) (+ array-buffer-idx 2)))
+      (set! (u16vector-ref buffer-data (+ elem-idx 3)) (+ array-buffer-idx 3))
+      (set! (u16vector-ref buffer-data (+ elem-idx 4)) (+ array-buffer-idx 0))
+      (set! (u16vector-ref buffer-data (+ elem-idx 5)) (+ array-buffer-idx 2))
+      )
 
     ;; position vertex buffer
     (let ((buffer-data      (tile-collection-vert-buffer-data coll))
@@ -514,7 +515,7 @@ END
              (right  (car (tile-spec-dimensions spec)))
              (top    0)
              (bottom (cadr (tile-spec-dimensions spec)))
-             (depth  0.5)
+             (depth  -0.5)
              )
         (assign-vert! 0 (list left top depth))
         (assign-vert! 1 (list right top depth))
