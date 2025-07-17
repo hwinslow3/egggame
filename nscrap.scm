@@ -65,6 +65,10 @@
 
 (define *tile-1* (create-tile! *tile-spec-1*))
 (check-gl-error "post-create-tile")
-;(define *tile-2* (create-tile! *tile-spec-2*))
+(define *tile-2* (create-tile! *tile-spec-2*))
+
+
+(set! (tile-position *tile-1*) '(-200 -150))
+(set! (tile-position *tile-2*) '(200 150))
 
 ;end

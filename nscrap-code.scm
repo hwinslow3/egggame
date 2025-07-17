@@ -5,7 +5,7 @@
         (egggame glutil)
         (srfi-4)
         (defstruct))
-(import (chicken format) (chicken blob) (chicken port))
+(import (chicken format) (chicken blob) (chicken port) (chicken memory))
 
 (load "scrap-matrix.scm")
 
@@ -374,23 +374,51 @@ END
                 idx
                 (iter (add1 rect-idx))))))))
 
-(define (tile-update-gl-buffers!/position tile)
+(define (%tile-update-gl-array-buffer! tile #!key
+                                       get-buffer-data
+                                       get-buffer
+                                       target
+                                       buffer-data-to-blob
+                                       sub-buffer-data
+                                       ;; stupidly verbose, I know
+                                       ;; but I get confused easily
+                                       buffer-vect-element-count-per-vert
+                                       vect-element-size-bytes
+                                       )
   (let* ((spec (tile-tile-spec tile))
          (set  (tile-spec-tileset spec))
          (coll (tileset-tile-collection set)))
 
-    (let ((buffer-data      (tile-collection-vert-buffer-data coll))
-          (array-buffer-idx (tile-array-buffer-start-index tile)))
-      (glBindBuffer GL_ARRAY_BUFFER (tile-collection-vert-buffer coll))
-      ;; array-buffer-idx *
-      ;; 4 position triplets for each entry *
-      ;; 3 values per position entry *
-      ;; 4 bytes per value
-      (glBufferSubData GL_ARRAY_BUFFER (* array-buffer-idx 4 3 4) (* 4 3 4)
-                       (f32vector->blob/shared
-                        (subf32vector buffer-data
-                                      (* array-buffer-idx 4 3)
-                                      (* (add1 array-buffer-idx) 4 3)))))))
+    (let ((buffer-data       (get-buffer-data coll))
+          (array-buffer-idx  (tile-array-buffer-start-index tile))
+          (verts-per-tile    4)
+          )
+      (glBindBuffer target (get-buffer coll))
+      (glBufferSubData target
+                       (* array-buffer-idx
+                          buffer-vect-element-count-per-vert
+                          vect-element-size-bytes)
+                       (* buffer-vect-element-count-per-vert
+                          vect-element-size-bytes
+                          verts-per-tile)
+                       (buffer-data-to-blob
+                        (sub-buffer-data
+                         buffer-data
+                         (* array-buffer-idx
+                            buffer-vect-element-count-per-vert)
+                         (* (+ verts-per-tile array-buffer-idx)
+                            buffer-vect-element-count-per-vert)))))))
+
+(define (tile-update-gl-buffers!/position tile)
+  (%tile-update-gl-array-buffer! tile
+   get-buffer-data:     tile-collection-vert-buffer-data
+   get-buffer:          tile-collection-vert-buffer
+   target:              GL_ARRAY_BUFFER
+   buffer-data-to-blob: f32vector->blob/shared
+   sub-buffer-data:     subf32vector
+
+   buffer-vect-element-count-per-vert: 3
+   vect-element-size-bytes:            4))
 
 (define (%tile-position tile)
   (let* ((spec (tile-tile-spec tile))
@@ -398,12 +426,15 @@ END
          (coll (tileset-tile-collection set)))
     (let ((buffer-data      (tile-collection-vert-buffer-data coll))
           (array-buffer-idx (tile-array-buffer-start-index tile)))
-      (list (f32vector-ref buffer-data (+ (* array-buffer-idx 4 3) 0))
-            (f32vector-ref buffer-data (+ (* array-buffer-idx 4 3) 1))
-            (f32vector-ref buffer-data (+ (* array-buffer-idx 4 3) 2))))))
+      (list (f32vector-ref buffer-data (+ (* array-buffer-idx 3) 0))
+            (f32vector-ref buffer-data (+ (* array-buffer-idx 3) 1))
+            (f32vector-ref buffer-data (+ (* array-buffer-idx 3) 2))))))
 
 (define (tile-position-set! tile pos)
-  (let* ((spec (tile-tile-spec tile))
+  (let* ((pos (if (= 2 (length pos))
+                  (append pos (list (caddr (tile-position tile))))
+                  pos))
+         (spec (tile-tile-spec tile))
          (set  (tile-spec-tileset spec))
          (coll (tileset-tile-collection set)))
 
@@ -435,6 +466,11 @@ END
 
 (define tile-position (getter-with-setter %tile-position tile-position-set!))
 
+(define tile-position/xy
+  (getter-with-setter
+   (lambda (tile) (take (tile-position tile) 2))
+   tile-position-set!))
+
 (define (tile-update-gl-buffers! tile)
   (let* ((spec (tile-tile-spec tile))
          (set  (tile-spec-tileset spec))
@@ -446,37 +482,33 @@ END
       (glBindBuffer GL_ELEMENT_ARRAY_BUFFER (tile-collection-element-buffer coll))
       (glBufferSubData GL_ELEMENT_ARRAY_BUFFER (* 2 elem-idx) (* 6 2)
                        (u16vector->blob/shared
-                        (subu16vector buffer-data elem-idx (+ elem-idx 6)))))
+                        (subu16vector buffer-data elem-idx (+ elem-idx 6))))))
 
-    ;; position buffer
-    (tile-update-gl-buffers!/position tile)
+  ;; position buffer
+  (tile-update-gl-buffers!/position tile)
 
-    ;; texcoord buffer
-    (let ((buffer-data      (tile-collection-texcoord-buffer-data coll))
-          (array-buffer-idx (tile-array-buffer-start-index tile)))
-      (glBindBuffer GL_ARRAY_BUFFER (tile-collection-texcoord-buffer coll))
-      ;; array-buffer-idx *
-      ;; 4 texcoord pairs for each entry *
-      ;; 2 values per texcoord pair *
-      ;; 4 bytes per value
-      (glBufferSubData GL_ARRAY_BUFFER (* array-buffer-idx 4 2 4) (* 4 2 4)
-                       (f32vector->blob/shared
-                        (subf32vector buffer-data
-                                      (* array-buffer-idx 4 2)
-                                      (* (add1 array-buffer-idx) 4 2)))))
+  ;; texcoord buffer
+  (%tile-update-gl-array-buffer! tile
+   get-buffer-data:     tile-collection-texcoord-buffer-data
+   get-buffer:          tile-collection-texcoord-buffer
+   target:              GL_ARRAY_BUFFER
+   buffer-data-to-blob: f32vector->blob/shared
+   sub-buffer-data:     subf32vector
 
-    ;; texlayer buffer
-    (let ((buffer-data      (tile-collection-texlayer-buffer-data coll))
-          (array-buffer-idx (tile-array-buffer-start-index tile)))
-      (glBindBuffer GL_ARRAY_BUFFER (tile-collection-texlayer-buffer coll))
-      ;; array-buffer-idx *
-      ;; 4 texlayer indices for each entry *
-      ;; 4 bytes per value
-      (glBufferSubData GL_ARRAY_BUFFER (* array-buffer-idx 4 4) (* 4 4)
-                       (s32vector->blob/shared
-                        (subs32vector buffer-data
-                                      (* array-buffer-idx 4)
-                                      (* (add1 array-buffer-idx) 4)))))))
+   buffer-vect-element-count-per-vert: 2
+   vect-element-size-bytes:            4)
+
+
+  ;; texlayer buffer
+  (%tile-update-gl-array-buffer! tile
+   get-buffer-data:     tile-collection-texlayer-buffer-data
+   get-buffer:          tile-collection-texlayer-buffer
+   target:              GL_ARRAY_BUFFER
+   buffer-data-to-blob: s32vector->blob/shared
+   sub-buffer-data:     subs32vector
+
+   buffer-vect-element-count-per-vert: 1
+   vect-element-size-bytes:            4))
 
 (define (tile-assign-indices! tile)
   (let* ((spec (tile-tile-spec tile))
@@ -562,10 +594,87 @@ END
     (tile-update-gl-buffers! tile)))
 
 (define (delete-tile! tile)
-  (error "todo finish delete tile"))
+  (let* ((spec (tile-tile-spec tile))
+         (set  (tile-spec-tileset spec))
+         (coll (tileset-tile-collection set)))
+    ;; blank element buffer section
+    (let ((buffer-data      (tile-collection-element-buffer-data coll))
+          (elem-idx         (tile-element-buffer-index tile))
+          )
+      (set! (u16vector-ref buffer-data (+ elem-idx 0)) 0)
+      (set! (u16vector-ref buffer-data (+ elem-idx 1)) 0)
+      (set! (u16vector-ref buffer-data (+ elem-idx 2)) 0)
+
+      (set! (u16vector-ref buffer-data (+ elem-idx 3)) 0)
+      (set! (u16vector-ref buffer-data (+ elem-idx 4)) 0)
+      (set! (u16vector-ref buffer-data (+ elem-idx 5)) 0))
+
+    ;; blank first two verts
+    (let* ((buffer-data      (tile-collection-vert-buffer-data coll))
+           (array-buffer-idx (tile-array-buffer-start-index tile))
+           (idx              (* array-buffer-idx 3)))
+      (set! (f32vector-ref buffer-data (+ idx 0)) 0)
+      (set! (f32vector-ref buffer-data (+ idx 1)) 0)
+      (set! (f32vector-ref buffer-data (+ idx 2)) 0)
+
+      (set! (f32vector-ref buffer-data (+ idx 3)) 0)
+      (set! (f32vector-ref buffer-data (+ idx 4)) 0)
+      (set! (f32vector-ref buffer-data (+ idx 5)) 0)))
+
+  (tile-update-gl-buffers! tile))
 
 (define (tile-collection-double! coll)
-  (error "todo finish tile collection double"))
+
+  (define (double-buffer! #!key
+           get-buffer-data
+           set-buffer-data
+           get-buffer
+           make-new-buffer-data
+           buffer-data-length
+           buffer-data-to-blob
+           target
+           (usage GL_DYNAMIC_DRAW))
+    (let* ((old (get-buffer-data coll))
+           (new (make-new-buffer-data (* (buffer-data-length old) 2) 0)))
+      (move-memory! old new)
+      (set-buffer-data coll new)
+      (glBindBuffer target (get-buffer coll))
+      (let ((blob (buffer-data-to-blob new)))
+        (glBufferData target (blob-size blob) blob usage))))
+
+  (double-buffer!
+   get-buffer-data:      tile-collection-vert-buffer-data
+   set-buffer-data:      tile-collection-vert-buffer-data-set!
+   get-buffer:           tile-collection-vert-buffer
+   make-new-buffer-data: make-f32vector
+   buffer-data-length:   f32vector-length
+   buffer-data-to-blob:  f32vector->blob/shared
+   target:               GL_ARRAY_BUFFER)
+  (double-buffer!
+   get-buffer-data:      tile-collection-texcoord-buffer-data
+   set-buffer-data:      tile-collection-texcoord-buffer-data-set!
+   get-buffer:           tile-collection-texcoord-buffer
+   make-new-buffer-data: make-f32vector
+   buffer-data-length:   f32vector-length
+   buffer-data-to-blob:  f32vector->blob/shared
+   target:               GL_ARRAY_BUFFER)
+  (double-buffer!
+   get-buffer-data:      tile-collection-texlayer-buffer-data
+   set-buffer-data:      tile-collection-texlayer-buffer-data-set!
+   get-buffer:           tile-collection-texlayer-buffer
+   make-new-buffer-data: make-s32vector
+   buffer-data-length:   s32vector-length
+   buffer-data-to-blob:  s32vector->blob/shared
+   target:               GL_ARRAY_BUFFER)
+  (double-buffer!
+   get-buffer-data:      tile-collection-element-buffer-data
+   set-buffer-data:      tile-collection-element-buffer-data-set!
+   get-buffer:           tile-collection-element-buffer
+   make-new-buffer-data: make-u16vector
+   buffer-data-length:   u16vector-length
+   buffer-data-to-blob:  u16vector->blob/shared
+   target:               GL_ELEMENT_ARRAY_BUFFER)
+)
 
 (define (create-tile! tile-spec)
   (let* ((set      (tile-spec-tileset tile-spec))
@@ -593,7 +702,6 @@ END
          (a-texlayer (glGetAttribLocation program "in_texlayer")))
 
     (glUseProgram program)
-    (check-gl-error "post-use-program")
 
     (glUniformMatrix4fv
      (glGetUniformLocation program "camera")
@@ -621,7 +729,6 @@ END
      (u16vector-length (tile-collection-element-buffer-data coll))
      GL_UNSIGNED_SHORT
      #f)
-    (check-gl-error "post-draw-elements")
 
     (for-each
      glDisableVertexAttribArray
