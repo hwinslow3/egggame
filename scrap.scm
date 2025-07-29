@@ -147,7 +147,7 @@ flat out int texidx;
 
 void main()
 {
-    gl_Position = camera * vec4(position, 0.0, 1.0);
+    gl_Position = camera * vec4(position, -0.1, 1.0);
     texcoord = in_texcoord;
     texidx = in_texidx;
 }
