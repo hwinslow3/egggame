@@ -184,6 +184,7 @@
 (define GL_NUM_EXTENSIONS (foreign-value "GL_NUM_EXTENSIONS" GLenum))
 (define GL_NUM_PROGRAM_BINARY_FORMATS (foreign-value "GL_NUM_PROGRAM_BINARY_FORMATS" GLenum))
 (define GL_NUM_SHADER_BINARY_FORMATS (foreign-value "GL_NUM_SHADER_BINARY_FORMATS" GLenum))
+(define GL_ONE_MINUS_SRC_ALPHA (foreign-value "GL_ONE_MINUS_SRC_ALPHA" GLenum))
 (define GL_PACK_ALIGNMENT (foreign-value "GL_PACK_ALIGNMENT" GLenum))
 (define GL_PACK_IMAGE_HEIGHT (foreign-value "GL_PACK_IMAGE_HEIGHT" GLenum))
 (define GL_PACK_LSB_FIRST (foreign-value "GL_PACK_LSB_FIRST" GLenum))
@@ -228,6 +229,7 @@
 (define GL_SHADER_STORAGE_BUFFER_START (foreign-value "GL_SHADER_STORAGE_BUFFER_START" GLenum))
 (define GL_SMOOTH_LINE_WIDTH_GRANULARITY (foreign-value "GL_SMOOTH_LINE_WIDTH_GRANULARITY" GLenum))
 (define GL_SMOOTH_LINE_WIDTH_RANGE (foreign-value "GL_SMOOTH_LINE_WIDTH_RANGE" GLenum))
+(define GL_SRC_ALPHA (foreign-value "GL_SRC_ALPHA" GLenum))
 (define GL_STENCIL_BACK_FAIL (foreign-value "GL_STENCIL_BACK_FAIL" GLenum))
 (define GL_STENCIL_BACK_FUNC (foreign-value "GL_STENCIL_BACK_FUNC" GLenum))
 (define GL_STENCIL_BACK_PASS_DEPTH_FAIL (foreign-value "GL_STENCIL_BACK_PASS_DEPTH_FAIL" GLenum))
@@ -631,5 +633,11 @@
 (define GL_PATCHES (foreign-value "GL_PATCHES" GLenum))
 
 (define glDrawElements (foreign-lambda void glDrawElements GLenum size_t GLenum c-pointer))
+
+;; =============================================================================
+;; misc
+;; =============================================================================
+
+(define glBlendFunc (foreign-lambda void glBlendFunc GLenum GLenum))
 
 )

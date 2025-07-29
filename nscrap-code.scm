@@ -32,29 +32,52 @@
                   (printf "warning: overshot frame by ~s ms\n" (- diff mspf))))))))))
 
 (define event-cycle!
-  (let ((mouse-button-down? #f))
+  ;; ok dragging tiles
+  ;; so if the mouse button goes down, test to see if it's on a tile
+  ;; if it's on a tile, set that to the dragging tile
+  ;; if the mouse moves, move the dragging tile, if it exists
+  (let ((dragging-tile #f))
     (lambda ()
-      (let ((res (SDL_PollEvent *ev*)))
-        (and
-         res
-         (cond
-          ((= (SDL_Event-type *ev*) SDL_EVENT_QUIT)
-           (set! running? #f))
-          ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_BUTTON_DOWN)
-           (set! mouse-button-down? #t))
+      (and-let* ((_ (SDL_PollEvent *ev*)))
+        (cond
+         ((= (SDL_Event-type *ev*) SDL_EVENT_QUIT)
+          (set! running? #f))
+         ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_BUTTON_DOWN)
+          (when (= (SDL_Event-button-button *ev*) 1)
+            (let ((click-pos
+                   (list (SDL_Event-button-x *ev*)
+                         (SDL_Event-button-y *ev*))))
+              (for-each
+               (lambda (tile)
+                 (when (and (every >= click-pos (tile-position/xy tile))
+                            (every < click-pos (tile-bottom-right/xy tile)))
+                   (set! dragging-tile tile)))
+               *tiles*))))
           ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_BUTTON_UP)
-           (set! mouse-button-down? #f))
+           (set! dragging-tile #f))
           ((= (SDL_Event-type *ev*) SDL_EVENT_MOUSE_MOTION)
-           (when mouse-button-down?
-             (let ((offset
-                    (list (SDL_Event-motion-xrel *ev*)
-                          (SDL_Event-motion-xrel *ev*)
-                          0.5)))
-               (set! (tile-position *tile-1*) (map + (tile-position *tile-1*) offset))
-;               (set! (tile-position *tile-2*) (map + (tile-position *tile-2*) offset))
-)))
+           (when dragging-tile
+             (set! (tile-position/xy dragging-tile)
+                   (map + (tile-position/xy dragging-tile)
+                          (list (SDL_Event-motion-xrel *ev*)
+                                (SDL_Event-motion-yrel *ev*))))))
+          ((= (SDL_Event-type *ev*) SDL_EVENT_KEY_UP)
+           (when (and (member (SDL_Event-key-key *ev*) (list SDLK_UP SDLK_DOWN))
+                      dragging-tile)
+             (set! (tile-depth dragging-tile)
+                   (+ (tile-depth dragging-tile)
+                      (if (= (SDL_Event-key-key *ev*) SDLK_UP)
+                          0.1
+                          -0.1)))
+             (format #t "debugk01 ~s\n" (tile-depth dragging-tile))))
           (else
-           (printf "unrecognized event type: ~a\n" (SDL_Event-type *ev*)))))))))
+;           (format #t "debugk03 ~s\n" (SDL_Event-type *ev*))
+           #f
+)
+)
+        #t
+)
+)))
 
 ;; main regulator
 (define regulate! (make-fps-regulator 30))
@@ -200,7 +223,9 @@ END
                                         bottom: (cadr screen-dimensions)
                                         right: (car screen-dimensions)
                                         near: 0
-                                        far: 1))
+                                        ;; flipping far because of:
+                                        ;; https://community.khronos.org/t/z-axis-mirror-reflection-effect-of-orthographic-projection-matrix-and-handedness-switch/105160
+                                        far: -1))
            )
       (orig-make-tile-collection
        gl-program: gl-program
@@ -471,6 +496,30 @@ END
    (lambda (tile) (take (tile-position tile) 2))
    tile-position-set!))
 
+(define (%tile-depth tile)
+  (list-ref (tile-position tile) 2))
+
+(define (tile-depth-set! tile depth)
+  (set! (tile-position tile) (append (tile-position/xy tile) (list depth))))
+
+(define tile-depth (getter-with-setter %tile-depth tile-depth-set!))
+
+(define (tile-bottom-right tile)
+  (let* ((spec (tile-tile-spec tile))
+         (set  (tile-spec-tileset spec))
+         (coll (tileset-tile-collection set)))
+    (let* ((buffer-data      (tile-collection-vert-buffer-data coll))
+           (array-buffer-idx (+ (tile-array-buffer-start-index tile) 2)))
+      (list (f32vector-ref buffer-data (+ (* array-buffer-idx 3) 0))
+            (f32vector-ref buffer-data (+ (* array-buffer-idx 3) 1))
+            (f32vector-ref buffer-data (+ (* array-buffer-idx 3) 2))))))
+
+(define (tile-bottom-right/xy tile)
+  (take (tile-bottom-right tile) 2))
+
+(define (tile-dimensions tile)
+  (map - (tile-bottom-right tile) (tile-position tile)))
+
 (define (tile-update-gl-buffers! tile)
   (let* ((spec (tile-tile-spec tile))
          (set  (tile-spec-tileset spec))
@@ -547,7 +596,7 @@ END
              (right  (car (tile-spec-dimensions spec)))
              (top    0)
              (bottom (cadr (tile-spec-dimensions spec)))
-             (depth  -0.5)
+             (depth  0.5)
              )
         (assign-vert! 0 (list left top depth))
         (assign-vert! 1 (list right top depth))
@@ -733,3 +782,193 @@ END
     (for-each
      glDisableVertexAttribArray
      (list a-position a-texcoord a-texlayer))))
+
+;; testing
+
+;; syntax
+;; (with-wiped-funcs (func ...) body . rest)
+;; =>
+;; (let ((orig-func func))
+;;   (dynamic-wind
+;;    (lambda ()
+;;      (set! func (lambda args #f))
+;;      ...
+;;    )
+;;    X
+;;    (lambda ()
+;;      (set! func orig-func)
+;;    )
+;;   )
+;; )
+
+(define-syntax with-wiped-funcs
+  (er-macro-transformer
+   (lambda (exp rename compare)
+     (import (srfi-1)
+             (srfi-2)
+             (srfi-13)
+             (chicken string)
+             (chicken foreign)
+             (chicken format)
+)
+     (or (and-let* ((_ (and (list? exp)
+                            (>= (length exp) 3)))
+
+                    (symbol-append
+                     (lambda items
+                       (string->symbol
+                        (string-concatenate (map symbol->string items)))))
+
+                    (_ (car exp))
+
+                    (funcs-to-wipe (and (list? (cadr exp))
+                                        (every symbol? (cadr exp))
+                                        (cadr exp)))
+
+                    (body-list (cddr exp))
+
+                    (&let          (rename 'let))
+                    (&dynamic-wind (rename 'dynamic-wind))
+                    (&lambda       (rename 'lambda))
+                    (&set!         (rename 'set!))
+                    )
+           `(,&let ,(map (lambda (func)
+                           `(,(symbol-append 'orig- func) ,func))
+                         funcs-to-wipe)
+              (,&dynamic-wind
+                (,&lambda ()
+                  #f
+                  ,@(map (lambda (func)
+                           `(,&set! ,func (,&lambda _ #f)))
+                         funcs-to-wipe))
+                (,&lambda () #f . ,body-list)
+                (,&lambda ()
+                  #f
+                  ,@(map (lambda (func)
+                           `(,&set! ,func ,(symbol-append 'orig- func)))
+                         funcs-to-wipe)))))
+         (error "bad with-wiped-funcs syntax" exp)))))
+
+(define (run-tile-collection-tests)
+  (let ((tests '()))
+
+    (define (add-test! #!key name func)
+      (set! tests (append tests (list (cons name func)))))
+
+    ;; tests
+    (add-test!
+     name: 'tile-collection-double!
+     func:
+       (lambda ()
+         ;; ok so
+         ;; let's have a tile-collection with 2 rects worth
+         ;; only one allocated though
+         (let ((coll
+                (orig-make-tile-collection
+                 vert-buffer-data:
+                   (f32vector 0 0 0
+                              0 0 0
+                              1 2 3
+                              4 5 6
+
+                              7 8 9
+                              1 2 3
+                              4 5 6
+                              7 8 9)
+                 texcoord-buffer-data:
+                   (f32vector 1 2
+                              3 4
+                              5 6
+                              7 8
+
+                              9 1
+                              2 3
+                              4 5
+                              6 7)
+                 texlayer-buffer-data:
+                   (s32vector 1 2 3 4
+
+                              5 6 7 8)
+                 element-buffer-data:
+                   (u16vector 4 5 6
+                              6 7 4
+
+                              0 0 0
+                              0 0 0))))
+           (with-wiped-funcs (glBindBuffer glBufferData)
+            (tile-collection-double! coll)
+            (or (equal? (f32vector
+                         0 0 0
+                         0 0 0
+                         1 2 3
+                         4 5 6
+
+                         7 8 9
+                         1 2 3
+                         4 5 6
+                         7 8 9
+
+                         0 0 0
+                         0 0 0
+                         0 0 0
+                         0 0 0
+
+                         0 0 0
+                         0 0 0
+                         0 0 0
+                         0 0 0)
+                        (tile-collection-vert-buffer-data coll))
+                (error "tile-collection-double! failed to double vert buffer data"))
+            (or (equal? (f32vector
+                         1 2
+                         3 4
+                         5 6
+                         7 8
+
+                         9 1
+                         2 3
+                         4 5
+                         6 7
+
+                         0 0
+                         0 0
+                         0 0
+                         0 0
+
+                         0 0
+                         0 0
+                         0 0
+                         0 0)
+                        (tile-collection-texcoord-buffer-data coll))
+                (error "tile-collection-double! failed to double texcoord buffer data"))
+            (or (equal? (s32vector
+                         1 2 3 4
+                         5 6 7 8
+                         0 0 0 0
+                         0 0 0 0)
+                        (tile-collection-texlayer-buffer-data coll))
+                (error "tile-collection-double! failed to double texlayer buffer data"))
+            (or (equal? (u16vector
+                         4 5 6
+                         6 7 4
+
+                         0 0 0
+                         0 0 0
+
+                         0 0 0
+                         0 0 0
+
+                         0 0 0
+                         0 0 0)
+                        (tile-collection-element-buffer-data coll))
+                (error "tile-collection-double! failed to double element buffer data"))))))
+
+    (for-each
+     (lambda (test-pair)
+       (let ((name (car test-pair))
+             (func (cdr test-pair)))
+         (handle-exceptions
+             exn
+             (format #t "error with ~s test: ~s\n" name exn)
+           (func))))
+     tests)))
