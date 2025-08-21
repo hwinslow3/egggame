@@ -5,7 +5,7 @@
         (egggame glutil)
         (srfi-4)
         (defstruct))
-(import (chicken format) (chicken blob) (chicken port) (chicken memory))
+(import (chicken format) (chicken blob) (chicken port) (chicken memory) (chicken condition))
 
 (load "scrap-matrix.scm")
 
@@ -109,6 +109,10 @@
   texlayer-buffer
   element-buffer-data
   element-buffer
+
+  tile-vector
+  ;; allocated tiles stored by element-buffer-index/6
+
   camera-matrix
 )
 
@@ -126,6 +130,11 @@
   (getter-with-setter
    tile-collection-tilesets
    tile-collection-tilesets-set!))
+
+(set! tile-collection-tile-vector
+  (getter-with-setter
+   tile-collection-tile-vector
+   tile-collection-tile-vector-set!))
 
 (defstruct tileset
   tile-collection
@@ -149,9 +158,34 @@
 
 (defstruct tile
   element-buffer-index
+  ;; first index of the first item in the element buffer array
+  ;; each tile consists of two triangles
+  ;; so the items in the element-buffer consist of six indices into
+  ;; vert-buffer+texcoord-buffer+texlayer-buffer
+  ;; so element-buffer-index will increment by 6 each time
+  ;; so they'll be something like 0, 6, 12, 18, 24, etc
+  ;; to calculate byte offsets, multiply by 2 (each index is a u16)
+  ;; also the tiles are stored in tile-vector
+  ;; to calculate the tile-vector index for the tile, divide
+  ;; element-buffer-index by six
+
   array-buffer-start-index
+  ;; the vert-buffer+texcoord-buffer+texlayer-buffer correspond
+  ;; because each tile is two triangles, but the two triangles share two verts
+  ;; so there's four elements
+  ;; we use a single index to cover vert+texcoord+texlayer, so one needs to
+  ;; multiply by the number of elements in each vert for each buffer to figure
+  ;; out the actual numeric vector index
+  ;; (so array-buffer-start-index*3 works for vert, xyz per each vert; or *2 for
+  ;;  texcoord, uv for each vert; and *1 for texlayer)
+  ;; the indices increment by four (two triangles share two verts, and have two
+  ;;  spare verts), so this increments something like 0, 4, 8, 12, 16, etc
+
   tile-spec
 )
+
+(define (tile-coll-tile-vector-index tile)
+  (/ (tile-element-buffer-index tile) 6))
 
 (define orig-make-tile-collection make-tile-collection)
 
@@ -181,6 +215,7 @@
            (element-buffer (make-buffer
                             GL_ELEMENT_ARRAY_BUFFER
                             (u16vector->blob/shared element-buffer-data)))
+           (tile-vector (vector #f))
 
            ;; shader
            (vert-shader (make-shader GL_VERTEX_SHADER #<<END
@@ -239,6 +274,7 @@ END
        texlayer-buffer: texlayer-buffer
        element-buffer-data: element-buffer-data
        element-buffer: element-buffer
+       tile-vector: tile-vector
        camera-matrix: camera-matrix))))
 
 (define (check-gl-error msg)
@@ -455,10 +491,110 @@ END
             (f32vector-ref buffer-data (+ (* array-buffer-idx 3) 1))
             (f32vector-ref buffer-data (+ (* array-buffer-idx 3) 2))))))
 
+(define (vector-shift-sort-item! vect idx #!key
+                                 length
+                                 is-empty?
+                                 less-than-or-equal?
+                                 equal?
+                                 swap!
+                                 )
+  (define (seek-next-non-empty advance-idx idx)
+    (if (or (negative? idx) (>= idx length))
+        #f
+        (if (is-empty? vect idx)
+            (let ((next (advance-idx idx)))
+              (cond
+               ((or (negative? next) (>= next length)) #f)
+               ((not (is-empty? vect next))            next)
+               (else
+                (seek-next-non-empty advance-idx next))))
+            idx)))
+  (define (seek-non-empty-left idx)
+    (seek-next-non-empty
+     (lambda (idx) (sub1 idx))
+     (sub1 idx)))
+  (define (seek-non-empty-right idx)
+    (seek-next-non-empty
+     (lambda (idx) (add1 idx))
+     (add1 idx)))
+  (define (equal-seeker seek-non-empty)
+    (lambda (idx)
+      (let ((next (seek-non-empty idx)))
+        (if (and next (equal? vect idx next))
+            ((equal-seeker seek-non-empty) next)
+            idx))))
+  (define seek-equal-left (equal-seeker seek-non-empty-left))
+  (define seek-equal-right (equal-seeker seek-non-empty-right))
+
+  (let ((left-idx  (seek-non-empty-left idx))
+        (right-idx (seek-non-empty-right idx)))
+    (cond
+     ((and (not left-idx) (not right-idx))
+      #f)
+
+     ;; no item to the left, return if we're less than or equal to our right
+     ((and (not left-idx) right-idx (less-than-or-equal? vect idx right-idx))
+      #f)
+     ;; no item to the right, return if we're greater than or equal to our left
+     ((and (not right-idx) left-idx (less-than-or-equal? vect left-idx idx))
+      #f)
+
+     ;; items to both sides and everything in order
+     ((and left-idx right-idx
+           (less-than-or-equal? vect left-idx idx)
+           (less-than-or-equal? vect idx right-idx))
+      #f)
+
+     ;; an item to the left, we're less than it, so look for a string of equals and swap with the leftmost equal
+     ((and left-idx (less-than-or-equal? vect idx left-idx))
+      (let ((left-idx (seek-equal-left left-idx)))
+        (swap! vect left-idx idx)
+        (vector-shift-sort-item!
+         vect left-idx
+         length: length
+         is-empty?: is-empty?
+         less-than-or-equal?: less-than-or-equal?
+         equal?: equal?
+         swap!: swap!)))
+     ;; an item to the left, we're less than it, so look for a string of equals and swap with the leftmost equal
+     ((and right-idx (less-than-or-equal? vect right-idx idx))
+      (let ((right-idx (seek-equal-right right-idx)))
+        (swap! vect right-idx idx)
+        (vector-shift-sort-item!
+         vect right-idx
+         length: length
+         is-empty?: is-empty?
+         less-than-or-equal?: less-than-or-equal?
+         equal?: equal?
+         swap!: swap!)))
+
+     (else
+      #f))))
+
+(define (%tile-sort-depths! tile)
+  ;; ok, so
+  ;; after a tile is properly inserted into the buffers or its depth is changed
+  ;; sort-depths needs to be rerun
+
+  ;; to start with, we should maintain a vector of the actual tile objects
+  ;; (thought this wasn't necessary but might be good to keep around)
+  ;; - needs to be maintained upon creation
+  ;; - deletion
+  ;; - doubling the tile collection
+  ;; - sorting depths
+
+  ;; beyond maintaining that vector, we run a somewhat complicated sorting algo
+  (error "todo finish tile sort depth")
+)
+
 (define (tile-position-set! tile pos)
-  (let* ((pos (if (= 2 (length pos))
-                  (append pos (list (caddr (tile-position tile))))
+  (let* ((old-depth (tile-depth tile))
+         (pos (if (= 2 (length pos))
+                  (append pos (list old-depth))
                   pos))
+         (depth-changed?
+          (and (= 3 (length pos))
+               (not (= (caddr pos) old-depth))))
          (spec (tile-tile-spec tile))
          (set  (tile-spec-tileset spec))
          (coll (tileset-tile-collection set)))
@@ -487,7 +623,9 @@ END
         (assign-vert! 2 (list right bottom depth))
         (assign-vert! 3 (list left bottom depth))))
 
-    (tile-update-gl-buffers!/position tile)))
+    (tile-update-gl-buffers!/position tile)
+
+    (%tile-sort-depths! tile)))
 
 (define tile-position (getter-with-setter %tile-position tile-position-set!))
 
@@ -520,7 +658,7 @@ END
 (define (tile-dimensions tile)
   (map - (tile-bottom-right tile) (tile-position tile)))
 
-(define (tile-update-gl-buffers! tile)
+(define (tile-update-gl-buffers!/element tile)
   (let* ((spec (tile-tile-spec tile))
          (set  (tile-spec-tileset spec))
          (coll (tileset-tile-collection set)))
@@ -531,7 +669,11 @@ END
       (glBindBuffer GL_ELEMENT_ARRAY_BUFFER (tile-collection-element-buffer coll))
       (glBufferSubData GL_ELEMENT_ARRAY_BUFFER (* 2 elem-idx) (* 6 2)
                        (u16vector->blob/shared
-                        (subu16vector buffer-data elem-idx (+ elem-idx 6))))))
+                        (subu16vector buffer-data elem-idx (+ elem-idx 6)))))))
+
+(define (tile-update-gl-buffers! tile)
+  ;; element buffer
+  (tile-update-gl-buffers!/element tile)
 
   ;; position buffer
   (tile-update-gl-buffers!/position tile)
@@ -559,7 +701,7 @@ END
    buffer-vect-element-count-per-vert: 1
    vect-element-size-bytes:            4))
 
-(define (tile-assign-indices! tile)
+(define (tile-write-initial-buffers! tile)
   (let* ((spec (tile-tile-spec tile))
          (set  (tile-spec-tileset spec))
          (coll (tileset-tile-collection set)))
@@ -588,7 +730,7 @@ END
            (set! (f32vector-ref buffer-data
                                 (+ (* (+ array-buffer-idx vert-idx-offset) 3)
                                    value-offset))
-             value))
+                 (->inexact value)))
          value
          '(0 1 2)))
 
@@ -614,7 +756,7 @@ END
            (set! (f32vector-ref buffer-data
                                 (+ (* (+ array-buffer-idx texcoord-idx-offset) 2)
                                    value-offset))
-             value))
+                 (->inexact value)))
          (map / value max-dims)
          '(0 1)))
 
@@ -668,9 +810,13 @@ END
 
       (set! (f32vector-ref buffer-data (+ idx 3)) 0)
       (set! (f32vector-ref buffer-data (+ idx 4)) 0)
-      (set! (f32vector-ref buffer-data (+ idx 5)) 0)))
+      (set! (f32vector-ref buffer-data (+ idx 5)) 0))
 
-  (tile-update-gl-buffers! tile))
+    (tile-update-gl-buffers! tile)
+
+    (set! (vector-ref (tile-collection-tile-vector coll)
+                      (tile-coll-tile-vector-index tile))
+          #f)))
 
 (define (tile-collection-double! coll)
 
@@ -723,6 +869,13 @@ END
    buffer-data-length:   u16vector-length
    buffer-data-to-blob:  u16vector->blob/shared
    target:               GL_ELEMENT_ARRAY_BUFFER)
+
+
+  (let ((vect (tile-collection-tile-vector coll)))
+    (set! (tile-collection-tile-vector coll)
+          (list->vector
+           (append (vector->list vect)
+                   (make-list (vector-length vect) #f)))))
 )
 
 (define (create-tile! tile-spec)
@@ -738,9 +891,14 @@ END
                            element-buffer-index: next-idx
                            array-buffer-start-index: array-idx
                            tile-spec: tile-spec)))
+          ;; debug do we still need tile-spec to have the tiles list?
           (set! (tile-spec-tiles tile-spec)
                 (append (tile-spec-tiles tile-spec) (list res)))
-          (tile-assign-indices! res)
+          (tile-write-initial-buffers! res)
+          (set! (vector-ref (tile-collection-tile-vector coll)
+                            (tile-coll-tile-vector-index res))
+                res)
+          (%tile-sort-depths! res)
           res))))
 
 (define (render-tile-collection! coll)
@@ -788,15 +946,16 @@ END
 ;; syntax
 ;; (with-wiped-funcs (func ...) body . rest)
 ;; =>
-;; (let ((orig-func func))
+;; (let ((orig-func func) ...)
 ;;   (dynamic-wind
 ;;    (lambda ()
 ;;      (set! func (lambda args #f))
 ;;      ...
 ;;    )
-;;    X
+;;    (lambda () body . rest)
 ;;    (lambda ()
 ;;      (set! func orig-func)
+;;      ...
 ;;    )
 ;;   )
 ;; )
@@ -809,8 +968,7 @@ END
              (srfi-13)
              (chicken string)
              (chicken foreign)
-             (chicken format)
-)
+             (chicken format))
      (or (and-let* ((_ (and (list? exp)
                             (>= (length exp) 3)))
 
@@ -863,38 +1021,45 @@ END
          ;; ok so
          ;; let's have a tile-collection with 2 rects worth
          ;; only one allocated though
-         (let ((coll
-                (orig-make-tile-collection
-                 vert-buffer-data:
-                   (f32vector 0 0 0
-                              0 0 0
-                              1 2 3
-                              4 5 6
+         (let* ((tile-vector
+                 (vector
+                  (make-tile
+                   element-buffer-index:     0
+                   array-buffer-start-index: 4)))
+                (coll
+                 (orig-make-tile-collection
+                  vert-buffer-data:
+                    (f32vector 0 0 0
+                               0 0 0
+                               1 2 3
+                               4 5 6
 
-                              7 8 9
-                              1 2 3
-                              4 5 6
-                              7 8 9)
-                 texcoord-buffer-data:
-                   (f32vector 1 2
-                              3 4
-                              5 6
-                              7 8
+                               7 8 9
+                               1 2 3
+                               4 5 6
+                               7 8 9)
+                  texcoord-buffer-data:
+                    (f32vector 1 2
+                               3 4
+                               5 6
+                               7 8
 
-                              9 1
-                              2 3
-                              4 5
-                              6 7)
-                 texlayer-buffer-data:
-                   (s32vector 1 2 3 4
+                               9 1
+                               2 3
+                               4 5
+                               6 7)
+                  texlayer-buffer-data:
+                    (s32vector 1 2 3 4
 
-                              5 6 7 8)
-                 element-buffer-data:
-                   (u16vector 4 5 6
-                              6 7 4
+                               5 6 7 8)
+                  element-buffer-data:
+                    (u16vector 4 5 6
+                               6 7 4
 
-                              0 0 0
-                              0 0 0))))
+                               0 0 0
+                               0 0 0)
+                  tile-vector: tile-vector
+                  )))
            (with-wiped-funcs (glBindBuffer glBufferData)
             (tile-collection-double! coll)
             (or (equal? (f32vector
@@ -961,7 +1126,422 @@ END
                          0 0 0
                          0 0 0)
                         (tile-collection-element-buffer-data coll))
-                (error "tile-collection-double! failed to double element buffer data"))))))
+                (error "tile-collection-double! failed to double element buffer data"))
+            (let ((vect (tile-collection-tile-vector coll)))
+              (for-each
+               (lambda (original stored idx)
+                 (or (eq? original stored)
+                     (error "tile-collection-double! failed to properly duplicate tile vector"))
+                 (when (>= idx (vector-length vect))
+                   (or (not stored)
+                       (error "tile-collection-double! somehow added a non-empty cell after doubling collection" idx stored))))
+               (append (vector->list tile-vector)
+                       (make-list
+                        (vector-length tile-vector)
+                        #f))
+               (append (vector->list vect)
+                       (make-list
+                        (vector-length vect)
+                        #f))
+               (iota (* 2 (vector-length vect)))))))))
+
+#;
+    (add-test!
+     name: 'create-tile!/maintain-tile-vect
+     func:
+       (lambda ()
+         (let* ((tile-vector
+                 (vector
+                  (make-tile
+                   element-buffer-index:     0
+                   array-buffer-start-index: 4)
+                  #f))
+                (coll
+                 (orig-make-tile-collection
+                  vert-buffer-data:
+                    (f32vector 0 0 0
+                               0 0 0
+                               1 2 3
+                               4 5 6
+
+                               7 8 9
+                               1 2 3
+                               4 5 6
+                               7 8 9)
+                  texcoord-buffer-data:
+                    (f32vector 1 2
+                               3 4
+                               5 6
+                               7 8
+
+                               9 1
+                               2 3
+                               4 5
+                               6 7)
+                  texlayer-buffer-data:
+                    (s32vector 1 2 3 4
+
+                               3 3 3 3)
+                  element-buffer-data:
+                    (u16vector 4 5 6
+                               6 7 4
+
+                               0 0 0
+                               0 0 0)
+                  tile-vector: tile-vector
+                  gl-texture-dimensions: '(100 100 5)))
+                (set  (make-tileset tile-collection: coll
+                                    layer: 3))
+                (spec (make-tile-spec tileset: set
+                                      start: '(0 0)
+                                      dimensions: '(2 3)
+                                      layer: 3)))
+           (with-wiped-funcs (glBindBuffer glBufferData
+                                           glBufferSubData)
+            (let ((next (create-tile! spec)))
+              (or (= (tile-element-buffer-index next) 6)
+                  (error "create-tile! got unexpected element buffer index"
+                         (tile->alist next)))
+              (or (= (tile-array-buffer-start-index next) 0)
+                  (error "create-tile! got unexpected array buffer start index"
+                         (tile->alist next)))
+              (or (eq? (vector-ref (tile-collection-tile-vector coll) 1) next)
+                  (error "create-tile! didn't update the tile vector")))))))
+
+    (let ()
+      ;; for our vector tests, each item is (num key)
+      ;; and we're sorting lowest to highest, left to right
+      (define (make-item #!key value key) (list value key))
+      (define (item-value item) (car item))
+
+      (define (add-vect-shift-test! #!key name-suffix in-vect out-vect idx)
+        (add-test!
+         name: (symbol-append 'vector-shift-sort-item!/ name-suffix)
+         func:
+           (lambda ()
+             (vector-shift-sort-item!
+              in-vect idx
+              length: (vector-length in-vect)
+              is-empty?: (lambda (vect idx)
+                           (not (and (vector-ref vect idx) #t)))
+              less-than-or-equal?:
+                (lambda (vect a b)
+                  (<= (item-value (vector-ref vect a))
+                      (item-value (vector-ref vect b))))
+              equal?:
+                (lambda (vect a b)
+                  (= (item-value (vector-ref vect a))
+                     (item-value (vector-ref vect b))))
+              swap!:
+                (lambda (vect a b)
+                  (let ((a-val (vector-ref vect a)))
+                    (set! (vector-ref vect a) (vector-ref vect b))
+                    (set! (vector-ref vect b) a-val))))
+             (or (equal? in-vect out-vect)
+                 (error "vector-shift-sort-item! didn't work"
+                        name-suffix)))))
+
+      (add-vect-shift-test!
+       name-suffix: 'left-min
+       idx: 0
+       in-vect:
+         (vector
+          (make-item value: 0.5 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.7 key: 'c)
+          (make-item value: 0.8 key: 'd))
+       out-vect:
+         (vector
+          (make-item value: 0.5 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.7 key: 'c)
+          (make-item value: 0.8 key: 'd)))
+
+      (add-vect-shift-test!
+       name-suffix: 'right-max
+       idx: 3
+       in-vect:
+         (vector
+          (make-item value: 0.5 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.7 key: 'c)
+          (make-item value: 0.8 key: 'd))
+       out-vect:
+         (vector
+          (make-item value: 0.5 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.7 key: 'c)
+          (make-item value: 0.8 key: 'd)))
+
+      (add-vect-shift-test!
+       name-suffix: 'left-min-equal-neighbor
+       idx: 0
+       in-vect:
+         (vector
+          (make-item value: 0.6 key: 'a)
+          #f
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.7 key: 'c)
+          (make-item value: 0.8 key: 'd))
+       out-vect:
+         (vector
+          (make-item value: 0.6 key: 'a)
+          #f
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.7 key: 'c)
+          (make-item value: 0.8 key: 'd)))
+
+      (add-vect-shift-test!
+       name-suffix: 'right-max-equal-neighbor
+       idx: 4
+       in-vect:
+         (vector
+          (make-item value: 0.5 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.7 key: 'c)
+          #f
+          (make-item value: 0.7 key: 'd))
+       out-vect:
+         (vector
+          (make-item value: 0.5 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.7 key: 'c)
+          #f
+          (make-item value: 0.7 key: 'd)))
+
+      (add-vect-shift-test!
+       name-suffix: 'middle-shifting-left-gap
+       idx: 3
+       in-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          #f
+          (make-item value: 0.5 key: 'c)
+          (make-item value: 0.8 key: 'd))
+       out-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.5 key: 'c)
+          #f
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.8 key: 'd)))
+
+      (add-vect-shift-test!
+       name-suffix: 'middle-shifting-left-no-gap
+       idx: 2
+       in-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.5 key: 'c)
+          (make-item value: 0.8 key: 'd))
+       out-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.5 key: 'c)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.8 key: 'd)))
+
+      (add-vect-shift-test!
+       name-suffix: 'middle-shifting-right-gap
+       idx: 1
+       in-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          #f
+          (make-item value: 0.5 key: 'c)
+          (make-item value: 0.8 key: 'd))
+       out-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.5 key: 'c)
+          #f
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.8 key: 'd)))
+
+      (add-vect-shift-test!
+       name-suffix: 'middle-shifting-right-no-gap
+       idx: 1
+       in-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.5 key: 'c)
+          (make-item value: 0.8 key: 'd))
+       out-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.5 key: 'c)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.8 key: 'd)))
+
+      (add-vect-shift-test!
+       name-suffix: 'middle-alright
+       idx: 2
+       in-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.5 key: 'b)
+          (make-item value: 0.6 key: 'c)
+          (make-item value: 0.7 key: 'd))
+       out-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.5 key: 'b)
+          (make-item value: 0.6 key: 'c)
+          (make-item value: 0.7 key: 'd)))
+
+      (add-vect-shift-test!
+       name-suffix: 'middle-left-equals
+       idx: 5
+       in-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.6 key: 'c)
+          (make-item value: 0.6 key: 'd)
+          (make-item value: 0.6 key: 'e)
+          (make-item value: 0.5 key: 'f)
+          (make-item value: 0.7 key: 'g))
+       out-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.5 key: 'f)
+          (make-item value: 0.6 key: 'c)
+          (make-item value: 0.6 key: 'd)
+          (make-item value: 0.6 key: 'e)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.7 key: 'g)))
+
+      (add-vect-shift-test!
+       name-suffix: 'middle-static-item
+       idx: 2
+       in-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.6 key: 'c)
+          (make-item value: 0.6 key: 'd)
+          (make-item value: 0.6 key: 'e)
+          (make-item value: 0.5 key: 'f)
+          (make-item value: 0.7 key: 'g))
+       out-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.6 key: 'c)
+          (make-item value: 0.6 key: 'd)
+          (make-item value: 0.6 key: 'e)
+          (make-item value: 0.5 key: 'f)
+          (make-item value: 0.7 key: 'g)))
+
+      (add-vect-shift-test!
+       name-suffix: 'middle-right-equals
+       idx: 1
+       in-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.7 key: 'b)
+          (make-item value: 0.6 key: 'c)
+          (make-item value: 0.6 key: 'd)
+          (make-item value: 0.6 key: 'e)
+          (make-item value: 0.6 key: 'f)
+          (make-item value: 0.8 key: 'g))
+       out-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          (make-item value: 0.6 key: 'f)
+          (make-item value: 0.6 key: 'c)
+          (make-item value: 0.6 key: 'd)
+          (make-item value: 0.6 key: 'e)
+          (make-item value: 0.7 key: 'b)
+          (make-item value: 0.8 key: 'g)))
+
+      (add-vect-shift-test!
+       name-suffix: 'middle-left-multiple-hops
+       idx: 16
+       in-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          #f
+          (make-item value: 0.6 key: 'b)
+          #f
+          #f
+          (make-item value: 0.6 key: 'c)
+          (make-item value: 0.6 key: 'd)
+          #f
+          #f
+          (make-item value: 0.6 key: 'e)
+          (make-item value: 0.7 key: 'f)
+          (make-item value: 0.7 key: 'g)
+          (make-item value: 0.8 key: 'h)
+          (make-item value: 0.9 key: 'i)
+          (make-item value: 1.0 key: 'j)
+          (make-item value: 1.0 key: 'k)
+          (make-item value: 0.5 key: 'l)
+          (make-item value: 1.1 key: 'm))
+       out-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          #f
+          (make-item value: 0.5 key: 'l)
+          #f
+          #f
+          (make-item value: 0.6 key: 'c)
+          (make-item value: 0.6 key: 'd)
+          #f
+          #f
+          (make-item value: 0.6 key: 'e)
+          (make-item value: 0.6 key: 'b)
+          (make-item value: 0.7 key: 'g)
+          (make-item value: 0.7 key: 'f)
+          (make-item value: 0.8 key: 'h)
+          (make-item value: 0.9 key: 'i)
+          (make-item value: 1.0 key: 'k)
+          (make-item value: 1.0 key: 'j)
+          (make-item value: 1.1 key: 'm)))
+
+      (add-vect-shift-test!
+       name-suffix: 'middle-right-multiple-hops
+       idx: 2
+       in-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          #f
+          (make-item value: 0.9 key: 'b)
+          (make-item value: 0.5 key: 'c)
+          #f
+          #f
+          (make-item value: 0.5 key: 'd)
+          (make-item value: 0.5 key: 'e)
+          #f
+          (make-item value: 0.6 key: 'f)
+          (make-item value: 0.6 key: 'g)
+          (make-item value: 0.7 key: 'h)
+          (make-item value: 0.8 key: 'i)
+          #f
+          (make-item value: 1.0 key: 'j))
+       out-vect:
+         (vector
+          (make-item value: 0.4 key: 'a)
+          #f
+          (make-item value: 0.5 key: 'e)
+          (make-item value: 0.5 key: 'c)
+          #f
+          #f
+          (make-item value: 0.5 key: 'd)
+          (make-item value: 0.6 key: 'g)
+          #f
+          (make-item value: 0.6 key: 'f)
+          (make-item value: 0.7 key: 'h)
+          (make-item value: 0.8 key: 'i)
+          (make-item value: 0.9 key: 'b)
+          #f
+          (make-item value: 1.0 key: 'j)))
+
+      )
 
     (for-each
      (lambda (test-pair)
@@ -969,6 +1549,6 @@ END
              (func (cdr test-pair)))
          (handle-exceptions
              exn
-             (format #t "error with ~s test: ~s\n" name exn)
+             (format #t "error with ~s test: ~s\n" name (condition->list exn))
            (func))))
      tests)))
