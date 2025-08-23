@@ -184,6 +184,9 @@
   tile-spec
 )
 
+(set! tile-element-buffer-index
+  (getter-with-setter tile-element-buffer-index tile-element-buffer-index-set!))
+
 (define (tile-coll-tile-vector-index tile)
   (/ (tile-element-buffer-index tile) 6))
 
@@ -551,41 +554,85 @@ END
         (swap! vect left-idx idx)
         (vector-shift-sort-item!
          vect left-idx
-         length: length
-         is-empty?: is-empty?
+         length:              length
+         is-empty?:           is-empty?
          less-than-or-equal?: less-than-or-equal?
-         equal?: equal?
-         swap!: swap!)))
+         equal?:              equal?
+         swap!:               swap!)))
      ;; an item to the left, we're less than it, so look for a string of equals and swap with the leftmost equal
      ((and right-idx (less-than-or-equal? vect right-idx idx))
       (let ((right-idx (seek-equal-right right-idx)))
         (swap! vect right-idx idx)
         (vector-shift-sort-item!
          vect right-idx
-         length: length
-         is-empty?: is-empty?
+         length:              length
+         is-empty?:           is-empty?
          less-than-or-equal?: less-than-or-equal?
-         equal?: equal?
-         swap!: swap!)))
+         equal?:              equal?
+         swap!:               swap!)))
 
      (else
       #f))))
 
 (define (%tile-sort-depths! tile)
-  ;; ok, so
-  ;; after a tile is properly inserted into the buffers or its depth is changed
-  ;; sort-depths needs to be rerun
+  (let* ((spec (tile-tile-spec tile))
+         (set  (tile-spec-tileset spec))
+         (coll (tileset-tile-collection set))
 
-  ;; to start with, we should maintain a vector of the actual tile objects
-  ;; (thought this wasn't necessary but might be good to keep around)
-  ;; - needs to be maintained upon creation
-  ;; - deletion
-  ;; - doubling the tile collection
-  ;; - sorting depths
+         (tile-vector (tile-collection-tile-vector coll)))
+    (define (is-empty? _coll idx)
+      (not (vector-ref tile-vector idx)))
+    (define (less-than-or-equal? _coll a-idx b-idx)
+      (<= (tile-depth (vector-ref tile-vector a-idx))
+          (tile-depth (vector-ref tile-vector b-idx))))
+    (define (equal? _coll a-idx b-idx)
+      (= (tile-depth (vector-ref tile-vector a-idx))
+         (tile-depth (vector-ref tile-vector b-idx))))
+    (define swap!
+      (let ((temp-elem-buffer (u16vector 0 0 0 0 0 0))
+            (temp-buffer-size (* 2 6))
 
-  ;; beyond maintaining that vector, we run a somewhat complicated sorting algo
-  (error "todo finish tile sort depth")
-)
+            (elem-buffer (tile-collection-element-buffer-data coll))
+            )
+        (lambda (_coll a-idx b-idx)
+          (let* ((a             (vector-ref tile-vector a-idx))
+                 (a-element-idx (tile-element-buffer-index a))
+
+                 (b             (vector-ref tile-vector b-idx))
+                 (b-element-idx (tile-element-buffer-index b)))
+            ;; ok so, swap the element-buffer-data for the two items
+            ;; move a    -> temp
+            ;; move b    -> a
+            ;; move temp -> b
+            (move-memory! elem-buffer temp-elem-buffer
+                          temp-buffer-size
+                          (* 2 a-element-idx))
+            (move-memory! elem-buffer elem-buffer
+                          temp-buffer-size
+                          (* 2 b-element-idx)
+                          (* 2 a-element-idx))
+            (move-memory! temp-elem-buffer elem-buffer
+                          temp-buffer-size
+                          0
+                          (* 2 b-element-idx))
+
+            ;; then swap their element buffer index
+            (set! (tile-element-buffer-index a) b-element-idx)
+            (set! (tile-element-buffer-index b) a-element-idx)
+
+            ;; then swap their places in the tile vector
+            (set! (vector-ref tile-vector a-idx) b)
+            (set! (vector-ref tile-vector b-idx) a)
+
+            ;; and then finally, write out the gl buffer changes
+            (tile-update-gl-buffers!/element a)
+            (tile-update-gl-buffers!/element b)))))
+    (vector-shift-sort-item! coll (tile-coll-tile-vector-index tile)
+     length:              (vector-length tile-vector)
+     is-empty?:           is-empty?
+     less-than-or-equal?: less-than-or-equal?
+     equal?:              equal?
+     swap!:               swap!)))
 
 (define (tile-position-set! tile pos)
   (let* ((old-depth (tile-depth tile))
@@ -1145,7 +1192,6 @@ END
                         #f))
                (iota (* 2 (vector-length vect)))))))))
 
-#;
     (add-test!
      name: 'create-tile!/maintain-tile-vect
      func:
@@ -1161,13 +1207,13 @@ END
                   vert-buffer-data:
                     (f32vector 0 0 0
                                0 0 0
-                               1 2 3
-                               4 5 6
+                               1 2 0
+                               4 5 0
 
-                               7 8 9
-                               1 2 3
-                               4 5 6
-                               7 8 9)
+                               7 8 0
+                               1 2 0
+                               4 5 0
+                               7 8 0)
                   texcoord-buffer-data:
                     (f32vector 1 2
                                3 4
@@ -1196,6 +1242,7 @@ END
                                       start: '(0 0)
                                       dimensions: '(2 3)
                                       layer: 3)))
+           (tile-tile-spec-set! (vector-ref tile-vector 0) spec)
            (with-wiped-funcs (glBindBuffer glBufferData
                                            glBufferSubData)
             (let ((next (create-tile! spec)))
@@ -1542,6 +1589,81 @@ END
           (make-item value: 1.0 key: 'j)))
 
       )
+
+    (add-test!
+     name: '%tile-sort-depths!
+     func:
+     (lambda ()
+       ;; ok, so, simple simple
+       ;; we want two tiles
+       ;; we want the tiles to be out of order, depth-wise
+       ;; so when sorted, they get swapped
+       (let* ((tile-a
+               (make-tile
+                element-buffer-index:     0
+                array-buffer-start-index: 0))
+              (tile-b
+               (make-tile
+                element-buffer-index:     6
+                array-buffer-start-index: 4))
+              (tile-vector (vector tile-a tile-b))
+              (coll
+               (orig-make-tile-collection
+                vert-buffer-data:
+                  (f32vector 0 0 -0.1
+                             1 0 -0.1
+                             1 1 -0.1
+                             0 1 -0.1
+
+                             0 0 -0.9
+                             1 1 -0.9
+                             1 1 -0.9
+                             0 0 -0.9)
+                texcoord-buffer-data:
+                  (f32vector 0 0
+                             1 0
+                             1 1
+                             0 1
+
+                             0 0
+                             1 0
+                             1 1
+                             0 1)
+                texlayer-buffer-data:
+                  (s32vector 0 0 0 0
+
+                             0 0 0 0)
+                element-buffer-data:
+                  (u16vector 0 1 2
+                             2 3 0
+
+                             4 5 6
+                             6 7 4)
+                tile-vector: tile-vector
+                gl-texture-dimensions: '(1 1 1)))
+              (set  (make-tileset tile-collection: coll
+                                  layer: 0))
+              (spec (make-tile-spec tileset: set
+                                    start: '(0 0)
+                                    dimensions: '(1 1)
+                                    layer: 0)))
+         (tile-tile-spec-set! tile-a spec)
+         (tile-tile-spec-set! tile-b spec)
+         (with-wiped-funcs (glBindBuffer glBufferData
+                                         glBufferSubData)
+          (%tile-sort-depths! tile-a)
+          ;; ok, so, check to make sure the vector got swapped
+          ;; and that the element buffer is updated
+          (or (eq? (vector-ref tile-vector 0) tile-b)
+              (error "%tile-sort-depths! failed to move tile-b ahead"))
+          (or (eq? (vector-ref tile-vector 1) tile-a)
+              (error "%tile-sort-depths! failed to move tile-a down"))
+          (or (equal? (tile-collection-element-buffer-data coll)
+                      (u16vector 4 5 6
+                                 6 7 4
+                                 0 1 2
+                                 2 3 0))
+              (error "%tile-sort-depths! failed to update element buffer"))))))
 
     (for-each
      (lambda (test-pair)
