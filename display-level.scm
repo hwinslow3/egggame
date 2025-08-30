@@ -18,6 +18,8 @@ exec chicken-csi -I ./egggame/ -s "$0" "$@"
         (egggame devil)
         (egggame tile-collection)
         (egggame tiled-file)
+        (egggame glutil)
+        (egggame matrix)
         (defstruct)
         (ssax)
         (filepath))
@@ -81,21 +83,15 @@ exec chicken-csi -I ./egggame/ -s "$0" "$@"
              (dimensions (tileset-tiledimensions ts-sxml))
              )
          (for-each
-          (lambda (gid)
-            (let* ((row    (floor (/ gid columns)))
-                   (column (modulo gid columns)))
-              #f
-              (hash-table-set! tile-specs ; debug
-                               (number->string gid)
-                               `((tileset . ,tileset)
-                                 (gid . ,gid)
-                                 (start . ,(map * (list column row) dimensions))
-                                 (dimensions . ,dimensions)))
+          (lambda (tile-idx)
+            (let* ((gid      (+ firstgid tile-idx))
+                   (row      (floor (/ tile-idx columns)))
+                   (column   (modulo tile-idx columns)))
               (set! (hash-table-ref tile-specs (number->string gid))
                     (tileset-add-tile-spec! tileset
                      start:      (map * (list column row) dimensions)
                      dimensions: dimensions))))
-          (iota tilecount firstgid))))
+          (iota tilecount))))
      (map-tilesets (sxml-toplevel-tag sxml)))
 
     (for-each
@@ -107,12 +103,12 @@ exec chicken-csi -I ./egggame/ -s "$0" "$@"
              (lambda (gid column-idx)
                (unless (equal? gid "0")
                  (let* ((spec (hash-table-ref tile-specs gid))
-                        (tile (create-tile! spec)))
+                        (tile (create-tile! spec))
+
+                        (xy-pos (map * (tile-dimensions tile)
+                                       (list column-idx row-idx))))
                    (set! (tile-position tile)
-                         (append (map *
-                                      (list column-idx row-idx)
-                                      (tile-dimensions tile))
-                                 (list depth))))))
+                         (append xy-pos (list (* -1 depth)))))))
              row
              (iota (length row))))
           data
@@ -194,8 +190,7 @@ exec chicken-csi -I ./egggame/ -s "$0" "$@"
         (pump-events!)
         ((fps-regulator))
         (render-tile-collection! (tile-collection))
-        (SDL_GL_SwapWindow)
-))))
+        (SDL_GL_SwapWindow (sdl-window))))))
 
 (define (main args)
   (with-game-params

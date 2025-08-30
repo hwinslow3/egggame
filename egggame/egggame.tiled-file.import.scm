@@ -121,6 +121,6 @@
   ;; assuming near=0, far=-1
   (let ((count (+ 0.0 (length (map-layers sxml)))))
     ;; start is -0.8, step is 0.8/count
-    (iota count (the number -0.8) (/ 0.8 count))))
+    (reverse (iota count (the number -0.8) (/ 0.8 count)))))
 
 )

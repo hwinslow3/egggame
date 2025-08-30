@@ -18,9 +18,12 @@
         make-tile-collection
         render-tile-collection!
         tile-position
+        tile-position/xy
+        tile-bottom-right/xy
         tile-dimensions
         create-tile!
         tile-collection-add-tilesets!
+        tile-depth
 )
 
 (defstruct tile-collection
@@ -708,7 +711,7 @@ END
              (right  (car (tile-spec-dimensions spec)))
              (top    0)
              (bottom (cadr (tile-spec-dimensions spec)))
-             (depth  0.5)
+             (depth  -0.5)
              )
         (assign-vert! 0 (list left top depth))
         (assign-vert! 1 (list right top depth))
