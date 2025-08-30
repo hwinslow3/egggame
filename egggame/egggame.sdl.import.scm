@@ -64,6 +64,14 @@
 
 (define-foreign-type SDL_WindowID unsigned-int32)
 
+(define (SDL_GetWindowSizeInPixels-s32vector window)
+  (let ((res (s32vector 3 4)))
+    (or ((foreign-lambda* bool ((c-pointer window) (s32vector value))
+           "C_return(SDL_GetWindowSizeInPixels(window, value+0, value+1));")
+         window res)
+        (error "failed to get window size in pixels"))
+    res))
+
 ;; =============================================================================
 ;; opengl stuff
 ;; =============================================================================

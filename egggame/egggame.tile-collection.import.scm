@@ -23,6 +23,7 @@
         tile-dimensions
         create-tile!
         tile-collection-add-tilesets!
+        tile-collection-camera-matrix
         tile-depth
 )
 
@@ -829,7 +830,7 @@ END
                            element-buffer-index: next-idx
                            array-buffer-start-index: array-idx
                            tile-spec: tile-spec)))
-          ;; debug do we still need tile-spec to have the tiles list?
+          ;; TODO do we still need tile-spec to have the tiles list?
           (set! (tile-spec-tiles tile-spec)
                 (append (tile-spec-tiles tile-spec) (list res)))
           (tile-write-initial-buffers! res)
@@ -848,6 +849,7 @@ END
 
     (glUseProgram program)
 
+    ;; maybe I want to modify this to only update it when it changes?
     (glUniformMatrix4fv
      (glGetUniformLocation program "camera")
      1 #t (matrix-data (tile-collection-camera-matrix coll)))

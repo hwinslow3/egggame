@@ -78,4 +78,15 @@
 
     res))
 
+(define (shift-2d-ortho-matrix! mat #!key dimensions start)
+  (let* ((left   (car start))
+         (right  (+ left (car dimensions)))
+         (top    (cadr start))
+         (bottom (+ top (cadr dimensions)))
+         )
+    (set! (matrix-ref mat '(0 0)) (/ 2 (- right left)))
+    (set! (matrix-ref mat '(1 1)) (/ 2 (- top bottom)))
+    (set! (matrix-ref mat '(0 3)) (- (/ (+ right left) (- right left))))
+    (set! (matrix-ref mat '(1 3)) (- (/ (+ top bottom) (- top bottom))))))
+
 )

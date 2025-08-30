@@ -8,6 +8,7 @@ exec chicken-csi -I ./egggame/ -s "$0" "$@"
         (chicken process-context)
         (chicken port)
         (srfi-1)
+        (srfi-4)
         (srfi-13)
         (srfi-69)
         (srfi-151)
@@ -154,9 +155,11 @@ exec chicken-csi -I ./egggame/ -s "$0" "$@"
        (if test (begin (begin body . rest) (iter)))))))
 
 (define main-loop
-  (let ((dragging? #f)
-        (running?  #t)
-        (ev        (make-SDL_Event)))
+  (let ((dragging?  #f)
+        (running?   #t)
+        (camera-pos  '(0 0))
+        (camera-dims #f)
+        (ev         (make-SDL_Event)))
 
     (define (pump-events!)
       (and
@@ -174,18 +177,20 @@ exec chicken-csi -I ./egggame/ -s "$0" "$@"
            (set! dragging? #f)
            #t)
           ((= (SDL_Event-type ev) SDL_EVENT_MOUSE_MOTION)
-           #f
-           #;
            (when dragging?
-           (set! (tile-position/xy dragging-tile)
-           (map + (tile-position/xy dragging-tile)
-           (list (SDL_Event-motion-xrel *ev*)
-           (SDL_Event-motion-yrel *ev*)))))
-           )
+             (set! camera-pos
+               (map + camera-pos
+                    (map - (list (SDL_Event-motion-xrel ev)
+                                 (SDL_Event-motion-yrel ev)))))
+             (shift-2d-ortho-matrix!
+              (tile-collection-camera-matrix (tile-collection))
+              dimensions: camera-dims start: camera-pos)))
           (else #f))
          (pump-events!))))
 
     (lambda ()
+      (set! camera-dims
+        (s32vector->list (SDL_GetWindowSizeInPixels-s32vector (sdl-window))))
       (while running?
         (pump-events!)
         ((fps-regulator))
