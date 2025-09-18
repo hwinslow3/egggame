@@ -5,7 +5,8 @@
         (chicken syntax)
         (chicken module)
         (chicken foreign)
-        (srfi-4))
+        (srfi-4)
+        (defstruct))
 
 (foreign-declare "#include <SDL3/SDL.h>")
 
@@ -131,18 +132,20 @@
 ;; event stuff
 ;; =============================================================================
 
-(define SDL_PollEvent
-  (foreign-lambda* bool ((u8vector ev))
-    "C_return(SDL_PollEvent((SDL_Event*)ev));"))
-
 (define sizeof-SDL_Event (foreign-value "sizeof(SDL_Event)" int))
 
-(define (make-SDL_Event)
-  (make-u8vector sizeof-SDL_Event))
+(defstruct SDL_Event
+  (data (make-u8vector sizeof-SDL_Event)))
 
-(define SDL_Event-type
-  (foreign-lambda* unsigned-integer32 ((u8vector ev))
-    "C_return(((SDL_Event*)ev)->type);"))
+(define (SDL_PollEvent ev)
+  ((foreign-lambda* bool ((u8vector ev))
+     "C_return(SDL_PollEvent((SDL_Event*)ev));")
+   (SDL_Event-data ev)))
+
+(define (SDL_Event-type ev)
+  ((foreign-lambda* unsigned-integer32 ((u8vector ev))
+     "C_return(((SDL_Event*)ev)->type);")
+   (SDL_Event-data ev)))
 
 (define SDL_EVENT_FIRST (foreign-value "SDL_EVENT_FIRST" unsigned-integer32))
 (define SDL_EVENT_QUIT (foreign-value "SDL_EVENT_QUIT" unsigned-integer32))
@@ -299,14 +302,16 @@
                     ;; renames
                     (&define          (rename 'define))
                     (&foreign-lambda* (rename 'foreign-lambda*))
+                    (&SDL_Event-data  (rename 'SDL_Event-data))
 
                     (scheme-identifier
                      (string->symbol (format "SDL_Event-~a" member-path-scm)))
                     (c-body-string
                      (format "C_return(((SDL_Event*)ev)->~a);" member-path-c)))
-           `(,&define ,scheme-identifier
-                      (,&foreign-lambda* ,return-type ((u8vector ev))
-                                         ,c-body-string)))
+           `(,&define (,scheme-identifier ev)
+                      ((,&foreign-lambda* ,return-type ((u8vector ev))
+                                          ,c-body-string)
+                       (,&SDL_Event-data ev))))
          (error "bad define-SDL_Event-getter syntax" exp)))))
 
 

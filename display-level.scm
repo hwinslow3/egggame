@@ -1,5 +1,5 @@
 #!/bin/sh
-#|
+#| -*- scheme -*-
 exec chicken-csi -I ./egggame/ -s "$0" "$@"
 |#
 
