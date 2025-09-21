@@ -27,6 +27,8 @@
         tile-depth
 )
 
+(define +element-buffer-entry-size-bytes+ 4)
+
 (defstruct tile-collection
   gl-program
   gl-texture-array
@@ -145,11 +147,11 @@
            (texlayer-buffer (make-buffer
                              GL_ARRAY_BUFFER
                              (s32vector->blob/shared texlayer-buffer-data)))
-           (element-buffer-data (u16vector 0 0 0
+           (element-buffer-data (u32vector 0 0 0
                                            0 0 0))
            (element-buffer (make-buffer
                             GL_ELEMENT_ARRAY_BUFFER
-                            (u16vector->blob/shared element-buffer-data)))
+                            (u32vector->blob/shared element-buffer-data)))
            (tile-vector (vector #f))
 
            ;; shader
@@ -355,13 +357,13 @@ END
   ;; we'll consider the rect-idx to be free if it's a zero sized set of triangles
   ;; so 0 0 should be a decent test
   (let* ((buffer-data  (tile-collection-element-buffer-data coll))
-         (max-rect-idx (/ (u16vector-length buffer-data) 6)))
+         (max-rect-idx (/ (u32vector-length buffer-data) 6)))
     (let iter ((rect-idx 0))
       (if (>= rect-idx max-rect-idx)
           #f
           (let ((idx (* rect-idx 6)))
-            (if (and (zero? (u16vector-ref buffer-data idx))
-                     (zero? (u16vector-ref buffer-data (add1 idx))))
+            (if (and (zero? (u32vector-ref buffer-data idx))
+                     (zero? (u32vector-ref buffer-data (add1 idx))))
                 idx
                 (iter (add1 rect-idx))))))))
 
@@ -506,7 +508,8 @@ END
          (set  (tile-spec-tileset spec))
          (coll (tileset-tile-collection set))
 
-         (tile-vector (tile-collection-tile-vector coll)))
+         (tile-vector (tile-collection-tile-vector coll))
+         (elem-size-bytes +element-buffer-entry-size-bytes+))
     (define (is-empty? _coll idx)
       (not (vector-ref tile-vector idx)))
     (define (less-than-or-equal? _coll a-idx b-idx)
@@ -516,8 +519,8 @@ END
       (= (tile-depth (vector-ref tile-vector a-idx))
          (tile-depth (vector-ref tile-vector b-idx))))
     (define swap!
-      (let ((temp-elem-buffer (u16vector 0 0 0 0 0 0))
-            (temp-buffer-size (* 2 6))
+      (let ((temp-elem-buffer (u32vector 0 0 0 0 0 0))
+            (temp-buffer-size (* elem-size-bytes 6))
 
             (elem-buffer (tile-collection-element-buffer-data coll))
             )
@@ -533,15 +536,15 @@ END
             ;; move temp -> b
             (move-memory! elem-buffer temp-elem-buffer
                           temp-buffer-size
-                          (* 2 a-element-idx))
+                          (* elem-size-bytes a-element-idx))
             (move-memory! elem-buffer elem-buffer
                           temp-buffer-size
-                          (* 2 b-element-idx)
-                          (* 2 a-element-idx))
+                          (* elem-size-bytes b-element-idx)
+                          (* elem-size-bytes a-element-idx))
             (move-memory! temp-elem-buffer elem-buffer
                           temp-buffer-size
                           0
-                          (* 2 b-element-idx))
+                          (* elem-size-bytes b-element-idx))
 
             ;; then swap their element buffer index
             (set! (tile-element-buffer-index a) b-element-idx)
@@ -641,9 +644,9 @@ END
     (let ((buffer-data (tile-collection-element-buffer-data coll))
           (elem-idx    (tile-element-buffer-index tile)))
       (glBindBuffer GL_ELEMENT_ARRAY_BUFFER (tile-collection-element-buffer coll))
-      (glBufferSubData GL_ELEMENT_ARRAY_BUFFER (* 2 elem-idx) (* 6 2)
-                       (u16vector->blob/shared
-                        (subu16vector buffer-data elem-idx (+ elem-idx 6)))))))
+      (glBufferSubData GL_ELEMENT_ARRAY_BUFFER (* 4 elem-idx) (* 6 4)
+                       (u32vector->blob/shared
+                        (subu32vector buffer-data elem-idx (+ elem-idx 6)))))))
 
 (define (tile-update-gl-buffers! tile)
   ;; element buffer
@@ -685,13 +688,13 @@ END
           (elem-idx         (tile-element-buffer-index tile))
           (array-buffer-idx (tile-array-buffer-start-index tile))
           )
-      (set! (u16vector-ref buffer-data (+ elem-idx 0)) (+ array-buffer-idx 0))
-      (set! (u16vector-ref buffer-data (+ elem-idx 1)) (+ array-buffer-idx 1))
-      (set! (u16vector-ref buffer-data (+ elem-idx 2)) (+ array-buffer-idx 2))
+      (set! (u32vector-ref buffer-data (+ elem-idx 0)) (+ array-buffer-idx 0))
+      (set! (u32vector-ref buffer-data (+ elem-idx 1)) (+ array-buffer-idx 1))
+      (set! (u32vector-ref buffer-data (+ elem-idx 2)) (+ array-buffer-idx 2))
 
-      (set! (u16vector-ref buffer-data (+ elem-idx 3)) (+ array-buffer-idx 3))
-      (set! (u16vector-ref buffer-data (+ elem-idx 4)) (+ array-buffer-idx 0))
-      (set! (u16vector-ref buffer-data (+ elem-idx 5)) (+ array-buffer-idx 2))
+      (set! (u32vector-ref buffer-data (+ elem-idx 3)) (+ array-buffer-idx 3))
+      (set! (u32vector-ref buffer-data (+ elem-idx 4)) (+ array-buffer-idx 0))
+      (set! (u32vector-ref buffer-data (+ elem-idx 5)) (+ array-buffer-idx 2))
       )
 
     ;; position vertex buffer
@@ -805,9 +808,9 @@ END
    get-buffer-data:      tile-collection-element-buffer-data
    set-buffer-data:      tile-collection-element-buffer-data-set!
    get-buffer:           tile-collection-element-buffer
-   make-new-buffer-data: make-u16vector
-   buffer-data-length:   u16vector-length
-   buffer-data-to-blob:  u16vector->blob/shared
+   make-new-buffer-data: make-u32vector
+   buffer-data-length:   u32vector-length
+   buffer-data-to-blob:  u32vector->blob/shared
    target:               GL_ELEMENT_ARRAY_BUFFER)
 
 
@@ -873,8 +876,8 @@ END
     (glBindBuffer GL_ELEMENT_ARRAY_BUFFER (tile-collection-element-buffer coll))
     (glDrawElements
      GL_TRIANGLES
-     (u16vector-length (tile-collection-element-buffer-data coll))
-     GL_UNSIGNED_SHORT
+     (u32vector-length (tile-collection-element-buffer-data coll))
+     GL_UNSIGNED_INT
      #f)
 
     (for-each
